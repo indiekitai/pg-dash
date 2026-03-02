@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { getOverview } from "./queries/overview.js";
@@ -12,6 +13,8 @@ import { getAdvisorReport, isSafeFix } from "./advisor.js";
 import { getSchemaTables, getSchemaTableDetail, getSchemaIndexes, getSchemaFunctions, getSchemaExtensions, getSchemaEnums } from "./queries/schema.js";
 import { TimeseriesStore } from "./timeseries.js";
 import { Collector } from "./collector.js";
+import { SchemaTracker } from "./schema-tracker.js";
+import Database from "better-sqlite3";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "node:http";
 
@@ -72,6 +75,14 @@ export async function startServer(opts: ServerOptions) {
 
   console.log(`  Collecting metrics every ${(intervalMs / 1000)}s...`);
   collector.start();
+
+  // Initialize schema tracker (reuse same data dir)
+  const schemaDbPath = path.join(opts.dataDir || path.join(os.homedir(), ".pg-dash"), "schema.db");
+  const schemaDb = new Database(schemaDbPath);
+  schemaDb.pragma("journal_mode = WAL");
+  const schemaTracker = new SchemaTracker(schemaDb, pool);
+  schemaTracker.start();
+  console.log("  Schema change tracking enabled");
 
   const app = new Hono();
 
@@ -199,6 +210,44 @@ export async function startServer(opts: ServerOptions) {
   app.get("/api/schema/enums", async (c) => {
     try { return c.json(await getSchemaEnums(pool)); }
     catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  // Phase 3: Schema change tracking endpoints
+  app.get("/api/schema/history", (c) => {
+    try {
+      const limit = parseInt(c.req.query("limit") || "30");
+      return c.json(schemaTracker.getHistory(limit));
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/schema/changes", (c) => {
+    try {
+      const since = c.req.query("since");
+      return c.json(schemaTracker.getChanges(since ? parseInt(since) : undefined));
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/schema/changes/latest", (c) => {
+    try { return c.json(schemaTracker.getLatestChanges()); }
+    catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/schema/diff", (c) => {
+    try {
+      const from = parseInt(c.req.query("from") || "0");
+      const to = parseInt(c.req.query("to") || "0");
+      if (!from || !to) return c.json({ error: "from and to params required" }, 400);
+      const diff = schemaTracker.getDiff(from, to);
+      if (!diff) return c.json({ error: "Snapshot not found" }, 404);
+      return c.json(diff);
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.post("/api/schema/snapshot", async (c) => {
+    try {
+      const result = await schemaTracker.takeSnapshot();
+      return c.json(result);
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
   // Serve frontend
