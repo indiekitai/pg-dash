@@ -14,12 +14,6 @@ interface Overview {
   connections: { active: number; idle: number; max: number };
 }
 
-interface HealthResult {
-  score: number;
-  grade: string;
-  issues: any[];
-}
-
 interface Database {
   name: string;
   size: string;
@@ -555,7 +549,7 @@ function HealthTab() {
 
 function SchemaTab() {
   const { data: tables } = useFetch<SchemaTable[]>("/api/schema/tables", 60000);
-  const { data: extensions } = useFetch<{ name: string; version: string; schema: string; description: string | null }[]>("/api/schema/extensions", 120000);
+  const { data: extensions } = useFetch<{ name: string; installed_version: string; schema: string; description: string | null }[]>("/api/schema/extensions", 120000);
   const { data: enums } = useFetch<{ name: string; schema: string; values: string[] }[]>("/api/schema/enums", 120000);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [detail, setDetail] = useState<TableDetail | null>(null);
@@ -606,7 +600,7 @@ function SchemaTab() {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {extensions.map((e) => (
                     <div key={e.name} className="bg-gray-800 rounded-lg px-3 py-2 text-sm">
-                      <div className="font-medium">{e.name} <span className="text-gray-400 text-xs">v{e.version}</span></div>
+                      <div className="font-medium">{e.name} <span className="text-gray-400 text-xs">v{e.installed_version}</span></div>
                       {e.description && <div className="text-xs text-gray-500 mt-0.5">{e.description}</div>}
                     </div>
                   ))}
@@ -828,7 +822,7 @@ type Tab = "overview" | "health" | "schema" | "activity";
 
 export default function App() {
   const { data: overview } = useFetch<Overview>("/api/overview");
-  const { data: health } = useFetch<HealthResult>("/api/health", 60000);
+  const { data: health } = useFetch<AdvisorResult>("/api/advisor", 60000);
   const { data: databases } = useFetch<Database[]>("/api/databases", 60000);
   const { data: tables } = useFetch<TableRow[]>("/api/tables", 60000);
   const { metrics: liveMetrics, activity: liveActivity, connected } = useWebSocket();

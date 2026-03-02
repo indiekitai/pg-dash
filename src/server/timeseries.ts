@@ -67,14 +67,14 @@ export class TimeseriesStore {
       const placeholders = metrics.map(() => "?").join(",");
       const rows = this.db
         .prepare(
-          `SELECT metric, timestamp, value FROM metrics WHERE metric IN (${placeholders}) AND timestamp = (SELECT MAX(timestamp) FROM metrics m2 WHERE m2.metric = metrics.metric)`
+          `SELECT m.metric, m.timestamp, m.value FROM metrics m INNER JOIN (SELECT metric, MAX(timestamp) as max_ts FROM metrics WHERE metric IN (${placeholders}) GROUP BY metric) g ON m.metric = g.metric AND m.timestamp = g.max_ts`
         )
         .all(...metrics) as DataPoint[];
       for (const r of rows) result[r.metric] = { timestamp: r.timestamp, value: r.value };
     } else {
       const rows = this.db
         .prepare(
-          "SELECT metric, timestamp, value FROM metrics WHERE timestamp = (SELECT MAX(timestamp) FROM metrics m2 WHERE m2.metric = metrics.metric)"
+          "SELECT m.metric, m.timestamp, m.value FROM metrics m INNER JOIN (SELECT metric, MAX(timestamp) as max_ts FROM metrics GROUP BY metric) g ON m.metric = g.metric AND m.timestamp = g.max_ts"
         )
         .all() as DataPoint[];
       for (const r of rows) result[r.metric] = { timestamp: r.timestamp, value: r.value };

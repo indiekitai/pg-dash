@@ -22,14 +22,20 @@ describe("computeAdvisorScore", () => {
     expect(computeAdvisorScore([issue("info")])).toBe(97);
   });
 
-  it("clamps at 0", () => {
-    const issues = Array.from({ length: 10 }, () => issue("critical"));
+  it("clamps at 0 with many issues", () => {
+    const issues = Array.from({ length: 20 }, () => issue("critical"));
     expect(computeAdvisorScore(issues)).toBe(0);
   });
 
   it("handles mixed severities", () => {
     // 100 - 20 - 8 - 3 = 69
     expect(computeAdvisorScore([issue("critical"), issue("warning"), issue("info")])).toBe(69);
+  });
+
+  it("applies diminishing penalty for many issues of same severity", () => {
+    // 10 warnings: first 5 at 8 = 40, next 5 at 4 = 20 => 100 - 60 = 40
+    const issues = Array.from({ length: 10 }, () => issue("warning"));
+    expect(computeAdvisorScore(issues)).toBe(40);
   });
 });
 

@@ -12,7 +12,6 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     port: { type: "string", short: "p", default: "3480" },
-    open: { type: "boolean", default: true },
     "no-open": { type: "boolean", default: false },
     json: { type: "boolean", default: false },
     host: { type: "string" },
@@ -36,8 +35,7 @@ Usage:
 
 Options:
   -p, --port <port>      Dashboard port (default: 3480)
-  --open                 Auto-open browser (default: true)
-  --no-open              Don't auto-open browser
+  --no-open              Don't auto-open browser (default: opens)
   --json                 Dump health check as JSON and exit
   --host <host>          PostgreSQL host
   -u, --user <user>      PostgreSQL user
@@ -75,7 +73,7 @@ const interval = values.interval ? parseInt(values.interval, 10) : undefined;
 await startServer({
   connectionString,
   port,
-  open: values["no-open"] ? false : values.open!,
+  open: !values["no-open"],
   json: values.json!,
   dataDir: values["data-dir"],
   interval,

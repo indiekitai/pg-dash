@@ -42,8 +42,10 @@ export class Collector {
   ) {}
 
   start(): void {
-    this.collect(); // first collection immediately
-    this.timer = setInterval(() => this.collect(), this.intervalMs);
+    this.collect().catch(err => console.error("[collector] Initial collection failed:", err));
+    this.timer = setInterval(() => {
+      this.collect().catch(err => console.error("[collector] Collection failed:", err));
+    }, this.intervalMs);
     // Prune once per hour
     setInterval(() => this.store.prune(), 60 * 60 * 1000);
   }

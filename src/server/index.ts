@@ -1,11 +1,9 @@
 import { Hono } from "hono";
-import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { getOverview } from "./queries/overview.js";
-import { getHealth } from "./queries/health.js";
 import { getDatabases } from "./queries/databases.js";
 import { getTables } from "./queries/tables.js";
 import { getActivity } from "./queries/activity.js";
@@ -52,13 +50,13 @@ export async function startServer(opts: ServerOptions) {
   // JSON mode: dump health and exit
   if (opts.json) {
     try {
-      const [overview, health, databases, tables] = await Promise.all([
+      const [overview, advisor, databases, tables] = await Promise.all([
         getOverview(pool),
-        getHealth(pool),
+        getAdvisorReport(pool),
         getDatabases(pool),
         getTables(pool),
       ]);
-      console.log(JSON.stringify({ overview, health, databases, tables }, null, 2));
+      console.log(JSON.stringify({ overview, advisor, databases, tables }, null, 2));
     } catch (err: any) {
       console.error(JSON.stringify({ error: err.message }));
       process.exit(1);
@@ -80,11 +78,6 @@ export async function startServer(opts: ServerOptions) {
   // Phase 0 endpoints
   app.get("/api/overview", async (c) => {
     try { return c.json(await getOverview(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/health", async (c) => {
-    try { return c.json(await getHealth(pool)); }
     catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
@@ -210,17 +203,49 @@ export async function startServer(opts: ServerOptions) {
 
   // Serve frontend
   const uiPath = path.resolve(__dirname, "ui");
-  app.use("/*", serveStatic({ root: uiPath }));
-  app.get("/*", serveStatic({ root: uiPath, path: "index.html" }));
+  const MIME_TYPES: Record<string, string> = {
+    ".html": "text/html",
+    ".js": "application/javascript",
+    ".css": "text/css",
+    ".json": "application/json",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+  };
+  app.get("/*", async (c) => {
+    const urlPath = c.req.path === "/" ? "/index.html" : c.req.path;
+    const filePath = path.join(uiPath, urlPath);
+    try {
+      const content = fs.readFileSync(filePath);
+      const ext = path.extname(filePath);
+      const contentType = MIME_TYPES[ext] || "application/octet-stream";
+      return new Response(content, { headers: { "content-type": contentType } });
+    } catch {
+      // SPA fallback
+      const html = fs.readFileSync(path.join(uiPath, "index.html"));
+      return new Response(html, { headers: { "content-type": "text/html" } });
+    }
+  });
 
   // Create HTTP server + WebSocket server
-  const server = http.createServer((req, res) => {
-    // Let Hono handle HTTP
+  const server = http.createServer(async (req, res) => {
+    // Read request body
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const body = Buffer.concat(chunks);
+
     const url = new URL(req.url || "/", `http://localhost:${opts.port}`);
-    const request = new Request(url.toString(), {
+    const init: RequestInit = {
       method: req.method,
       headers: req.headers as any,
-    });
+    };
+    if (req.method !== "GET" && req.method !== "HEAD" && body.length > 0) {
+      init.body = body;
+    }
+    const request = new Request(url.toString(), init);
     app.fetch(request).then((response) => {
       res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
       response.arrayBuffer().then((buf) => {

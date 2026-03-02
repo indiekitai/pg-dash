@@ -194,7 +194,7 @@ export async function getSchemaExtensions(pool: Pool) {
   const client = await pool.connect();
   try {
     const r = await client.query(`
-      SELECT extname AS name, extversion AS version,
+      SELECT extname AS name, extversion AS installed_version,
         n.nspname AS schema, obj_description(e.oid) AS description
       FROM pg_extension e
       JOIN pg_namespace n ON e.extnamespace = n.oid

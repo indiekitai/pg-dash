@@ -22,10 +22,17 @@ const SEVERITY_WEIGHT = { critical: 20, warning: 8, info: 3 } as const;
 
 export function computeAdvisorScore(issues: AdvisorIssue[]): number {
   let score = 100;
+  const counts = { critical: 0, warning: 0, info: 0 };
   for (const issue of issues) {
-    score -= SEVERITY_WEIGHT[issue.severity];
+    counts[issue.severity]++;
+    const n = counts[issue.severity];
+    const weight = SEVERITY_WEIGHT[issue.severity];
+    // Diminishing penalty: full for first 5, half for 6-15, quarter for 16+
+    if (n <= 5) score -= weight;
+    else if (n <= 15) score -= weight * 0.5;
+    else score -= weight * 0.25;
   }
-  return Math.max(0, Math.min(100, score));
+  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 export function gradeFromScore(score: number): string {
@@ -75,7 +82,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "moderate",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking seq scans:", (err as Error).message);
+    }
 
     // Bloated indexes (index size > 3x table size)
     try {
@@ -103,7 +112,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "quick",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking bloated indexes:", (err as Error).message);
+    }
 
     // Table bloat (dead tuples > 10%)
     try {
@@ -128,7 +139,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: pct > 30 ? "moderate" : "quick",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking table bloat:", (err as Error).message);
+    }
 
     // Cache efficiency per table
     try {
@@ -156,7 +169,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           });
         }
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking cache efficiency:", (err as Error).message);
+    }
 
     // Slow queries from pg_stat_statements
     try {
@@ -184,7 +199,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           });
         }
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking slow queries:", (err as Error).message);
+    }
 
     // ── Maintenance Advisors ───────────────────────────────────────
 
@@ -211,7 +228,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "quick",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking vacuum overdue:", (err as Error).message);
+    }
 
     // ANALYZE overdue
     try {
@@ -239,7 +258,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "quick",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking analyze overdue:", (err as Error).message);
+    }
 
     // Transaction ID wraparound risk
     try {
@@ -274,7 +295,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           });
         }
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking xid wraparound:", (err as Error).message);
+    }
 
     // Idle connections > 10 min
     try {
@@ -300,7 +323,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "quick",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking idle connections:", (err as Error).message);
+    }
 
     // ── Schema Advisors ────────────────────────────────────────────
 
@@ -327,7 +352,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "moderate",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking missing primary keys:", (err as Error).message);
+    }
 
     // Unused indexes (idx_scan = 0, size > 1MB)
     try {
@@ -353,7 +380,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "quick",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking unused indexes:", (err as Error).message);
+    }
 
     // Duplicate indexes
     try {
@@ -377,7 +406,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "quick",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking duplicate indexes:", (err as Error).message);
+    }
 
     // Missing foreign key indexes
     try {
@@ -407,7 +438,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "quick",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking missing FK indexes:", (err as Error).message);
+    }
 
     // ── Security Advisors ──────────────────────────────────────────
 
@@ -433,7 +466,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "moderate",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking superuser connections:", (err as Error).message);
+    }
 
     // SSL disabled
     try {
@@ -450,7 +485,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "involved",
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[advisor] Error checking SSL check:", (err as Error).message);
+    }
 
     // Password authentication check (PG 15+)
     try {
@@ -472,7 +509,9 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           effort: "moderate",
         });
       }
-    } catch {} // pg_hba_file_rules not available pre-PG15
+    } catch (err) {
+      console.error("[advisor] Error checking trust auth:", (err as Error).message);
+    } // pg_hba_file_rules not available pre-PG15
 
     const score = computeAdvisorScore(issues);
     return {
