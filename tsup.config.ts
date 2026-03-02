@@ -10,5 +10,5 @@ export default defineConfig({
   sourcemap: true,
   dts: false,
   banner: { js: "#!/usr/bin/env node" },
-  external: ["pg", "open"],
+  external: ["pg", "open", "better-sqlite3", "ws"],
 });

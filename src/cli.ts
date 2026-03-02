@@ -12,6 +12,8 @@ const { values, positionals } = parseArgs({
     password: { type: "string" },
     db: { type: "string", short: "d" },
     "pg-port": { type: "string" },
+    "data-dir": { type: "string" },
+    interval: { type: "string", short: "i" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -34,6 +36,8 @@ Options:
   --password <pass>      PostgreSQL password
   --db, -d <database>    PostgreSQL database
   --pg-port <port>       PostgreSQL port (default: 5432)
+  --data-dir <dir>       Data directory for metrics (default: ~/.pg-dash)
+  -i, --interval <sec>   Collection interval in seconds (default: 30)
   -h, --help             Show this help
 `);
   process.exit(0);
@@ -58,5 +62,13 @@ if (!connectionString) {
 }
 
 const port = parseInt(values.port!, 10);
+const interval = values.interval ? parseInt(values.interval, 10) : undefined;
 
-startServer({ connectionString, port, open: values.open!, json: values.json! });
+startServer({
+  connectionString,
+  port,
+  open: values.open!,
+  json: values.json!,
+  dataDir: values["data-dir"],
+  interval,
+});
