@@ -266,14 +266,16 @@ export async function startServer(opts: ServerOptions) {
     return snapshot;
   };
 
-  server.listen(opts.port, () => {
+  server.listen(opts.port, async () => {
     console.log(`\n  pg-dash running at http://localhost:${opts.port}\n`);
+    if (opts.open) {
+      try {
+        const openMod = await import("open");
+        await openMod.default(`http://localhost:${opts.port}`);
+      } catch {}
+    }
   });
 
-  if (opts.open) {
-    try {
-      const openMod = await import("open");
-      await openMod.default(`http://localhost:${opts.port}`);
-    } catch {}
-  }
+  // Keep process alive
+  await new Promise(() => {});
 }

@@ -294,7 +294,7 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           severity: isIdleTx ? "warning" : "info",
           category: "maintenance",
           title: `${isIdleTx ? "Idle in transaction" : "Idle connection"} (PID ${row.pid})`,
-          description: `PID ${row.pid} from ${row.client_addr || "local"} (${row.application_name || "unknown"}) has been ${row.state} for ${row.idle_duration}.`,
+          description: `PID ${row.pid} from ${row.client_addr || "local"} (${row.application_name || "unknown"}) has been ${row.state} for ${Math.round(row.idle_seconds / 60)} minutes.`,
           fix: `SELECT pg_terminate_backend(${row.pid});`,
           impact: isIdleTx ? "Idle-in-transaction connections hold locks and prevent VACUUM." : "Idle connections consume connection slots.",
           effort: "quick",

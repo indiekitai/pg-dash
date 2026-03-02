@@ -1,11 +1,19 @@
 import { parseArgs } from "node:util";
 import { startServer } from "./server/index.js";
 
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", err);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("Unhandled rejection:", err);
+});
+
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     port: { type: "string", short: "p", default: "3480" },
     open: { type: "boolean", default: true },
+    "no-open": { type: "boolean", default: false },
     json: { type: "boolean", default: false },
     host: { type: "string" },
     user: { type: "string", short: "u" },
@@ -64,10 +72,10 @@ if (!connectionString) {
 const port = parseInt(values.port!, 10);
 const interval = values.interval ? parseInt(values.interval, 10) : undefined;
 
-startServer({
+await startServer({
   connectionString,
   port,
-  open: values.open!,
+  open: values["no-open"] ? false : values.open!,
   json: values.json!,
   dataDir: values["data-dir"],
   interval,
