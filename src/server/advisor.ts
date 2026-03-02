@@ -92,12 +92,12 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
         SELECT
           schemaname, relname, indexrelname,
           pg_relation_size(indexrelid) AS idx_size,
-          pg_relation_size(indrelid) AS tbl_size,
+          pg_relation_size(relid) AS tbl_size,
           pg_size_pretty(pg_relation_size(indexrelid)) AS idx_size_pretty,
-          pg_size_pretty(pg_relation_size(indrelid)) AS tbl_size_pretty
+          pg_size_pretty(pg_relation_size(relid)) AS tbl_size_pretty
         FROM pg_stat_user_indexes
         WHERE pg_relation_size(indexrelid) > 1048576
-          AND pg_relation_size(indexrelid) > pg_relation_size(indrelid) * 3
+          AND pg_relation_size(indexrelid) > pg_relation_size(relid) * 3
         ORDER BY pg_relation_size(indexrelid) DESC LIMIT 10
       `);
       for (const row of r.rows) {
