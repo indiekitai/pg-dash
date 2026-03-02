@@ -14,6 +14,7 @@ import { getSchemaTables, getSchemaTableDetail, getSchemaIndexes, getSchemaFunct
 import { TimeseriesStore } from "./timeseries.js";
 import { Collector } from "./collector.js";
 import { SchemaTracker } from "./schema-tracker.js";
+import { AlertManager } from "./alerts.js";
 import Database from "better-sqlite3";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "node:http";
@@ -68,6 +69,9 @@ export async function startServer(opts: ServerOptions) {
     process.exit(0);
   }
 
+  const dataDir = opts.dataDir || path.join(os.homedir(), ".pg-dash");
+  fs.mkdirSync(dataDir, { recursive: true });
+
   // Initialize time-series store and collector
   const store = new TimeseriesStore(opts.dataDir);
   const intervalMs = (opts.interval || 30) * 1000;
@@ -76,13 +80,20 @@ export async function startServer(opts: ServerOptions) {
   console.log(`  Collecting metrics every ${(intervalMs / 1000)}s...`);
   collector.start();
 
-  // Initialize schema tracker (reuse same data dir)
-  const schemaDbPath = path.join(opts.dataDir || path.join(os.homedir(), ".pg-dash"), "schema.db");
+  // Initialize schema tracker
+  const schemaDbPath = path.join(dataDir, "schema.db");
   const schemaDb = new Database(schemaDbPath);
   schemaDb.pragma("journal_mode = WAL");
   const schemaTracker = new SchemaTracker(schemaDb, pool);
   schemaTracker.start();
   console.log("  Schema change tracking enabled");
+
+  // Initialize alerts
+  const alertsDbPath = path.join(dataDir, "alerts.db");
+  const alertsDb = new Database(alertsDbPath);
+  alertsDb.pragma("journal_mode = WAL");
+  const alertManager = new AlertManager(alertsDb);
+  console.log("  Alert monitoring enabled");
 
   const app = new Hono();
 
@@ -152,7 +163,6 @@ export async function startServer(opts: ServerOptions) {
   });
 
   // Phase 2 endpoints
-
   app.get("/api/advisor", async (c) => {
     try { return c.json(await getAdvisorReport(pool)); }
     catch (err: any) { return c.json({ error: err.message }, 500); }
@@ -250,6 +260,46 @@ export async function startServer(opts: ServerOptions) {
     } catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
+  // Phase 4: Alerts endpoints
+  app.get("/api/alerts/rules", (c) => {
+    try { return c.json(alertManager.getRules()); }
+    catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.post("/api/alerts/rules", async (c) => {
+    try {
+      const body = await c.req.json();
+      const rule = alertManager.addRule(body);
+      return c.json(rule, 201);
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.put("/api/alerts/rules/:id", async (c) => {
+    try {
+      const id = parseInt(c.req.param("id"));
+      const body = await c.req.json();
+      const ok = alertManager.updateRule(id, body);
+      if (!ok) return c.json({ error: "Rule not found" }, 404);
+      return c.json({ ok: true });
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.delete("/api/alerts/rules/:id", (c) => {
+    try {
+      const id = parseInt(c.req.param("id"));
+      const ok = alertManager.deleteRule(id);
+      if (!ok) return c.json({ error: "Rule not found" }, 404);
+      return c.json({ ok: true });
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/alerts/history", (c) => {
+    try {
+      const limit = parseInt(c.req.query("limit") || "50");
+      return c.json(alertManager.getHistory(limit));
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
   // Serve frontend
   const uiPath = path.resolve(__dirname, "ui");
   const MIME_TYPES: Record<string, string> = {
@@ -281,7 +331,6 @@ export async function startServer(opts: ServerOptions) {
 
   // Create HTTP server + WebSocket server
   const server = http.createServer(async (req, res) => {
-    // Read request body
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const body = Buffer.concat(chunks);
@@ -311,7 +360,6 @@ export async function startServer(opts: ServerOptions) {
 
   wss.on("connection", (ws) => {
     clients.add(ws);
-    // Send latest snapshot immediately
     const snap = collector.getLastSnapshot();
     if (Object.keys(snap).length > 0) {
       ws.send(JSON.stringify({ type: "metrics", data: snap }));
@@ -320,13 +368,12 @@ export async function startServer(opts: ServerOptions) {
     ws.on("error", () => clients.delete(ws));
   });
 
-  // Broadcast metrics and activity on each collection
+  // Broadcast metrics, activity, and check alerts on each collection
   const origCollect = collector.collect.bind(collector);
   collector.collect = async () => {
     const snapshot = await origCollect();
     if (clients.size > 0 && Object.keys(snapshot).length > 0) {
       const metricsMsg = JSON.stringify({ type: "metrics", data: snapshot });
-      // Also get activity
       let activityData: any[] = [];
       try { activityData = await getActivity(pool); } catch {}
       const activityMsg = JSON.stringify({ type: "activity", data: activityData });
@@ -337,6 +384,72 @@ export async function startServer(opts: ServerOptions) {
         }
       }
     }
+
+    // Check alerts after each collection
+    if (Object.keys(snapshot).length > 0) {
+      try {
+        // Derive alert metrics from raw snapshot
+        const alertMetrics: Record<string, number> = {};
+
+        // Connection utilization (percentage)
+        if (snapshot.connections_total !== undefined) {
+          const client = await pool.connect();
+          try {
+            const r = await client.query("SELECT setting::int AS max FROM pg_settings WHERE name = 'max_connections'");
+            const max = r.rows[0]?.max || 100;
+            alertMetrics.connection_util = (snapshot.connections_total / max) * 100;
+          } finally { client.release(); }
+        }
+
+        // Cache hit ratio as percentage
+        if (snapshot.cache_hit_ratio !== undefined) {
+          alertMetrics.cache_hit_pct = snapshot.cache_hit_ratio * 100;
+        }
+
+        // Long-running queries count
+        try {
+          const client = await pool.connect();
+          try {
+            const r = await client.query("SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'active' AND now() - query_start > interval '5 minutes' AND pid != pg_backend_pid()");
+            alertMetrics.long_query_count = r.rows[0]?.c || 0;
+          } finally { client.release(); }
+        } catch {}
+
+        // Idle in transaction count
+        try {
+          const client = await pool.connect();
+          try {
+            const r = await client.query("SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'idle in transaction' AND now() - state_change > interval '10 minutes'");
+            alertMetrics.idle_in_tx_count = r.rows[0]?.c || 0;
+          } finally { client.release(); }
+        } catch {}
+
+        // Health score (computed less frequently - only if we already have advisor data)
+        // We'll check it periodically (don't want to run full advisor every 30s)
+        // Simple approach: check on every 10th collection
+        if (Math.random() < 0.1) {
+          try {
+            const report = await getAdvisorReport(pool);
+            alertMetrics.health_score = report.score;
+          } catch {}
+        }
+
+        const fired = alertManager.checkAlerts(alertMetrics);
+
+        // Broadcast fired alerts to WebSocket clients
+        if (fired.length > 0 && clients.size > 0) {
+          const alertMsg = JSON.stringify({ type: "alerts", data: fired });
+          for (const ws of clients) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(alertMsg);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[alerts] Error checking alerts:", (err as Error).message);
+      }
+    }
+
     return snapshot;
   };
 
@@ -349,6 +462,24 @@ export async function startServer(opts: ServerOptions) {
       } catch {}
     }
   });
+
+  // Graceful shutdown
+  const shutdown = async () => {
+    console.log("\n  Shutting down gracefully...");
+    collector.stop();
+    schemaTracker.stop();
+    wss.close();
+    server.close();
+    store.close();
+    schemaDb.close();
+    alertsDb.close();
+    await pool.end();
+    console.log("  Goodbye!");
+    process.exit(0);
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 
   // Keep process alive
   await new Promise(() => {});

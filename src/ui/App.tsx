@@ -951,9 +951,217 @@ function ActivityTab({ activity }: { activity: ActivityRow[] }) {
   );
 }
 
+// ── Tab: Alerts ────────────────────────────────────────────────────────
+
+interface AlertRuleRow {
+  id: number;
+  name: string;
+  metric: string;
+  operator: string;
+  threshold: number;
+  severity: string;
+  enabled: number;
+  cooldown_minutes: number;
+}
+
+interface AlertHistoryRow {
+  id: number;
+  rule_id: number;
+  timestamp: number;
+  value: number;
+  message: string;
+  notified: number;
+}
+
+const ALERT_METRICS = [
+  { value: "connection_util", label: "Connection Utilization (%)" },
+  { value: "cache_hit_pct", label: "Cache Hit Ratio (%)" },
+  { value: "long_query_count", label: "Long-Running Queries" },
+  { value: "idle_in_tx_count", label: "Idle in Transaction" },
+  { value: "health_score", label: "Health Score" },
+];
+
+function AlertsTab() {
+  const { data: rules, reload: reloadRules } = useFetch<AlertRuleRow[]>("/api/alerts/rules", 30000);
+  const { data: history, reload: reloadHistory } = useFetch<AlertHistoryRow[]>("/api/alerts/history?limit=50", 15000);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editingRule, setEditingRule] = useState<AlertRuleRow | null>(null);
+  const [form, setForm] = useState({ name: "", metric: "connection_util", operator: "gt", threshold: "80", severity: "warning", cooldown_minutes: "60" });
+
+  const resetForm = () => {
+    setForm({ name: "", metric: "connection_util", operator: "gt", threshold: "80", severity: "warning", cooldown_minutes: "60" });
+    setEditingRule(null);
+    setShowForm(false);
+  };
+
+  const saveRule = async () => {
+    const body = {
+      name: form.name,
+      metric: form.metric,
+      operator: form.operator,
+      threshold: parseFloat(form.threshold),
+      severity: form.severity,
+      enabled: 1,
+      cooldown_minutes: parseInt(form.cooldown_minutes),
+    };
+    try {
+      if (editingRule) {
+        await fetch(`/api/alerts/rules/${editingRule.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        setToast({ message: "Rule updated", type: "success" });
+      } else {
+        await fetch("/api/alerts/rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        setToast({ message: "Rule created", type: "success" });
+      }
+      resetForm();
+      reloadRules();
+    } catch (e: any) {
+      setToast({ message: e.message, type: "error" });
+    }
+  };
+
+  const toggleRule = async (rule: AlertRuleRow) => {
+    await fetch(`/api/alerts/rules/${rule.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: rule.enabled ? 0 : 1 }) });
+    reloadRules();
+  };
+
+  const deleteRule = async (id: number) => {
+    if (!confirm("Delete this rule?")) return;
+    await fetch(`/api/alerts/rules/${id}`, { method: "DELETE" });
+    reloadRules();
+  };
+
+  const startEdit = (rule: AlertRuleRow) => {
+    setEditingRule(rule);
+    setForm({ name: rule.name, metric: rule.metric, operator: rule.operator, threshold: String(rule.threshold), severity: rule.severity, cooldown_minutes: String(rule.cooldown_minutes) });
+    setShowForm(true);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Rules */}
+      <div className="bg-gray-900 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Alert Rules</h2>
+          <button className="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 rounded cursor-pointer" onClick={() => { resetForm(); setShowForm(!showForm); }}>
+            {showForm ? "Cancel" : "+ Add Rule"}
+          </button>
+        </div>
+
+        {showForm && (
+          <div className="bg-gray-800 rounded-lg p-4 mb-4 space-y-3">
+            <input className="w-full bg-gray-700 rounded px-3 py-1.5 text-sm border border-gray-600" placeholder="Rule name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <select className="bg-gray-700 text-sm rounded px-3 py-1.5 border border-gray-600" value={form.metric} onChange={(e) => setForm({ ...form, metric: e.target.value })}>
+                {ALERT_METRICS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <select className="bg-gray-700 text-sm rounded px-3 py-1.5 border border-gray-600" value={form.operator} onChange={(e) => setForm({ ...form, operator: e.target.value })}>
+                <option value="gt">Greater than</option>
+                <option value="lt">Less than</option>
+                <option value="eq">Equal to</option>
+              </select>
+              <input className="bg-gray-700 text-sm rounded px-3 py-1.5 border border-gray-600" type="number" placeholder="Threshold" value={form.threshold} onChange={(e) => setForm({ ...form, threshold: e.target.value })} />
+              <select className="bg-gray-700 text-sm rounded px-3 py-1.5 border border-gray-600" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}>
+                <option value="info">Info</option>
+                <option value="warning">Warning</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-400">Cooldown (min):</label>
+              <input className="bg-gray-700 text-sm rounded px-3 py-1.5 border border-gray-600 w-24" type="number" value={form.cooldown_minutes} onChange={(e) => setForm({ ...form, cooldown_minutes: e.target.value })} />
+              <button className="ml-auto px-4 py-1.5 text-sm bg-green-700 hover:bg-green-600 rounded cursor-pointer" onClick={saveRule}>{editingRule ? "Update" : "Create"}</button>
+            </div>
+          </div>
+        )}
+
+        {!rules ? (
+          <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="h-12 bg-gray-800 rounded-lg animate-pulse" />)}</div>
+        ) : rules.length === 0 ? (
+          <p className="text-gray-500 text-sm text-center py-4">No alert rules configured.</p>
+        ) : (
+          <div className="space-y-2">
+            {rules.map((rule) => (
+              <div key={rule.id} className={`flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-3 ${!rule.enabled ? "opacity-50" : ""}`}>
+                <button className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${rule.enabled ? "bg-green-600" : "bg-gray-600"}`} onClick={() => toggleRule(rule)}>
+                  <span className={`absolute w-4 h-4 bg-white rounded-full top-0.5 transition-transform ${rule.enabled ? "left-5" : "left-0.5"}`} />
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium">{rule.name}</div>
+                  <div className="text-xs text-gray-400">{rule.metric} {rule.operator} {rule.threshold} · Cooldown: {rule.cooldown_minutes}min</div>
+                </div>
+                <span className={`px-2 py-0.5 rounded text-xs ${severityBadge[rule.severity] || "bg-gray-700"}`}>{rule.severity}</span>
+                <button className="text-xs text-gray-400 hover:text-white cursor-pointer" onClick={() => startEdit(rule)}>Edit</button>
+                <button className="text-xs text-red-400 hover:text-red-300 cursor-pointer" onClick={() => deleteRule(rule.id)}>Delete</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* History */}
+      <div className="bg-gray-900 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Alert History</h2>
+          <button className="text-sm text-gray-400 hover:text-white cursor-pointer" onClick={reloadHistory}>↻ Refresh</button>
+        </div>
+        {!history ? (
+          <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="h-10 bg-gray-800 rounded-lg animate-pulse" />)}</div>
+        ) : history.length === 0 ? (
+          <p className="text-gray-500 text-sm text-center py-4">No alerts fired yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {history.map((alert) => (
+              <div key={alert.id} className="flex items-start gap-3 bg-gray-800 rounded-lg px-4 py-2">
+                <span className="text-sm mt-0.5">{alert.message.includes("critical") ? "🔴" : alert.message.includes("warning") ? "🟡" : "🔵"}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm">{alert.message}</div>
+                  <div className="text-xs text-gray-500">{new Date(alert.timestamp).toLocaleString()} · Value: {alert.value}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    </div>
+  );
+}
+
+// ── Error Boundary ─────────────────────────────────────────────────────
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="max-w-2xl mx-auto mt-20 p-6 bg-red-900/30 border border-red-700 rounded-xl text-center">
+          <h2 className="text-xl font-bold text-red-400 mb-2">Something went wrong</h2>
+          <p className="text-sm text-gray-300 mb-4">{this.state.error?.message}</p>
+          <button className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded cursor-pointer text-sm" onClick={() => this.setState({ hasError: false, error: null })}>Try Again</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ── Skeleton ───────────────────────────────────────────────────────────
+
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`bg-gray-800 rounded-lg animate-pulse ${className || "h-8 w-full"}`} />;
+}
+
 // ── Main App ───────────────────────────────────────────────────────────
 
-type Tab = "overview" | "health" | "schema" | "activity";
+type Tab = "overview" | "health" | "schema" | "activity" | "alerts";
 
 export default function App() {
   const { data: overview } = useFetch<Overview>("/api/overview");
@@ -963,6 +1171,24 @@ export default function App() {
   const { metrics: liveMetrics, activity: liveActivity, connected } = useWebSocket();
   const [range, setRange] = useState<Range>("1h");
   const [tab, setTab] = useState<Tab>("overview");
+  const [alertCount, setAlertCount] = useState(0);
+
+  // Track unread alert count
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await fetch("/api/alerts/history?limit=10");
+        const data = await r.json();
+        // Count alerts from last hour
+        const oneHourAgo = Date.now() - 3600000;
+        const recent = data.filter((a: any) => a.timestamp > oneHourAgo);
+        setAlertCount(recent.length);
+      } catch {}
+    };
+    load();
+    const iv = setInterval(load, 30000);
+    return () => clearInterval(iv);
+  }, []);
 
   const [sparklines, setSparklines] = useState<Record<string, MetricPoint[]>>({});
   useEffect(() => {
@@ -980,56 +1206,65 @@ export default function App() {
     return () => clearInterval(iv);
   }, []);
 
-  const tabs: { id: Tab; label: string }[] = [
+  const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: "overview", label: "Overview" },
     { id: "health", label: "Health" },
     { id: "schema", label: "Schema" },
     { id: "activity", label: "Activity" },
+    { id: "alerts", label: "🔔 Alerts", badge: alertCount },
   ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-      {/* Header */}
-      <header className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold">🐘 pg-dash</h1>
-          {health && (
-            <span className={`text-xl font-black border-2 rounded-lg px-2 py-0.5 ${gradeColors[health.grade] || "border-gray-600"}`}>
-              {health.grade}
-            </span>
-          )}
-          <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} title={connected ? "Live" : "Disconnected"} />
-        </div>
-        {overview && (
-          <div className="text-sm text-gray-400 flex flex-wrap gap-x-4">
-            <span>PostgreSQL {overview.version}</span>
-            <span>Uptime: {overview.uptime}</span>
-            <span>Size: {overview.dbSize}</span>
-          </div>
-        )}
-      </header>
-
-      {/* Tab Navigation */}
-      <nav className="flex gap-1 bg-gray-900 rounded-xl p-1">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            className={`px-4 py-2 text-sm rounded-lg cursor-pointer transition-colors ${tab === t.id ? "bg-indigo-600 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"}`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-            {t.id === "activity" && liveActivity.filter(a => a.state !== "idle").length > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-green-600 rounded-full">{liveActivity.filter(a => a.state !== "idle").length}</span>
+    <ErrorBoundary>
+      <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Header */}
+        <header className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold">🐘 pg-dash</h1>
+            {health && (
+              <span className={`text-xl font-black border-2 rounded-lg px-2 py-0.5 ${gradeColors[health.grade] || "border-gray-600"}`}>
+                {health.grade}
+              </span>
             )}
-          </button>
-        ))}
-      </nav>
+            <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} title={connected ? "Live" : "Disconnected"} />
+          </div>
+          {overview ? (
+            <div className="text-sm text-gray-400 flex flex-wrap gap-x-4">
+              <span>PostgreSQL {overview.version}</span>
+              <span>Uptime: {overview.uptime}</span>
+              <span>Size: {overview.dbSize}</span>
+            </div>
+          ) : (
+            <div className="flex gap-4"><Skeleton className="h-4 w-24" /><Skeleton className="h-4 w-20" /><Skeleton className="h-4 w-16" /></div>
+          )}
+        </header>
 
-      {/* Tab Content */}
-      {tab === "overview" && <OverviewTab overview={overview} liveMetrics={liveMetrics} sparklines={sparklines} databases={databases} tables={tables} range={range} setRange={setRange} />}
-      {tab === "health" && <HealthTab />}
-      {tab === "schema" && <SchemaTab />}
-      {tab === "activity" && <ActivityTab activity={liveActivity} />}
-    </div>
+        {/* Tab Navigation */}
+        <nav className="flex gap-1 bg-gray-900 rounded-xl p-1">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              className={`px-4 py-2 text-sm rounded-lg cursor-pointer transition-colors ${tab === t.id ? "bg-indigo-600 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-gray-200"}`}
+              onClick={() => { setTab(t.id); if (t.id === "alerts") setAlertCount(0); }}
+            >
+              {t.label}
+              {t.id === "activity" && liveActivity.filter(a => a.state !== "idle").length > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-green-600 rounded-full">{liveActivity.filter(a => a.state !== "idle").length}</span>
+              )}
+              {t.badge && t.badge > 0 && t.id !== "activity" && (
+                <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-red-600 rounded-full">{t.badge}</span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        {/* Tab Content */}
+        {tab === "overview" && <OverviewTab overview={overview} liveMetrics={liveMetrics} sparklines={sparklines} databases={databases} tables={tables} range={range} setRange={setRange} />}
+        {tab === "health" && <HealthTab />}
+        {tab === "schema" && <SchemaTab />}
+        {tab === "activity" && <ActivityTab activity={liveActivity} />}
+        {tab === "alerts" && <AlertsTab />}
+      </div>
+    </ErrorBoundary>
   );
 }
