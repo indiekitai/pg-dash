@@ -10,6 +10,8 @@ import { getDatabases } from "./queries/databases.js";
 import { getTables } from "./queries/tables.js";
 import { getActivity } from "./queries/activity.js";
 import { getSlowQueries } from "./queries/slow-queries.js";
+import { getAdvisorReport, isSafeFix } from "./advisor.js";
+import { getSchemaTables, getSchemaTableDetail, getSchemaIndexes, getSchemaFunctions, getSchemaExtensions, getSchemaEnums } from "./queries/schema.js";
 import { TimeseriesStore } from "./timeseries.js";
 import { Collector } from "./collector.js";
 import { WebSocketServer, WebSocket } from "ws";
@@ -143,6 +145,67 @@ export async function startServer(opts: ServerOptions) {
     } catch (err: any) {
       return c.json({ error: err.message }, 500);
     }
+  });
+
+  // Phase 2 endpoints
+
+  app.get("/api/advisor", async (c) => {
+    try { return c.json(await getAdvisorReport(pool)); }
+    catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.post("/api/fix", async (c) => {
+    try {
+      const body = await c.req.json();
+      const sql = body?.sql?.trim();
+      if (!sql) return c.json({ error: "sql field required" }, 400);
+      if (!isSafeFix(sql)) return c.json({ error: "Operation not allowed. Only VACUUM, ANALYZE, REINDEX, CREATE/DROP INDEX CONCURRENTLY, pg_terminate_backend, pg_cancel_backend, and EXPLAIN ANALYZE are permitted." }, 403);
+      const client = await pool.connect();
+      try {
+        const start = Date.now();
+        const result = await client.query(sql);
+        const duration = Date.now() - start;
+        return c.json({ ok: true, duration, rowCount: result.rowCount, rows: result.rows || [] });
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
+  app.get("/api/schema/tables", async (c) => {
+    try { return c.json(await getSchemaTables(pool)); }
+    catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/schema/tables/:name", async (c) => {
+    try {
+      const name = c.req.param("name");
+      const detail = await getSchemaTableDetail(pool, name);
+      if (!detail) return c.json({ error: "Table not found" }, 404);
+      return c.json(detail);
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/schema/indexes", async (c) => {
+    try { return c.json(await getSchemaIndexes(pool)); }
+    catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/schema/functions", async (c) => {
+    try { return c.json(await getSchemaFunctions(pool)); }
+    catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/schema/extensions", async (c) => {
+    try { return c.json(await getSchemaExtensions(pool)); }
+    catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/schema/enums", async (c) => {
+    try { return c.json(await getSchemaEnums(pool)); }
+    catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
   // Serve frontend
