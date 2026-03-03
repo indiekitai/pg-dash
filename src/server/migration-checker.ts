@@ -168,6 +168,65 @@ function staticCheck(sql: string): MigrationIssue[] {
     });
   }
 
+  // 5b. ALTER COLUMN TYPE — rewrites the entire table and locks it
+  const alterTypeRe = /\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([\w."]+)\s+ALTER\s+(?:COLUMN\s+)?[\w"]+\s+TYPE\b/gi;
+  while ((m = alterTypeRe.exec(sql)) !== null) {
+    const table = bareTable(m[1]);
+    issues.push({
+      severity: "warning",
+      code: "ALTER_COLUMN_TYPE",
+      message: "ALTER COLUMN TYPE rewrites the entire table and acquires an exclusive lock.",
+      suggestion: "Consider using a new column + backfill + rename strategy to avoid downtime.",
+      lineNumber: findLineNumber(sql, m.index),
+      tableName: table,
+    });
+  }
+
+  // 5c. DROP COLUMN — safe in PostgreSQL 9.0+ (marks invisible, no rewrite), but breaks app code
+  const dropColRe = /\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([\w."]+)\s+DROP\s+(?:COLUMN\s+)(?:IF\s+EXISTS\s+)?[\w"]+\b/gi;
+  while ((m = dropColRe.exec(sql)) !== null) {
+    const table = bareTable(m[1]);
+    issues.push({
+      severity: "info",
+      code: "DROP_COLUMN",
+      message: "DROP COLUMN is safe in PostgreSQL (no table rewrite), but may break application code referencing that column.",
+      suggestion: "Ensure no application code references this column before dropping it.",
+      lineNumber: findLineNumber(sql, m.index),
+      tableName: table,
+    });
+  }
+
+  // 5d. ADD CONSTRAINT without NOT VALID — performs a full table scan to validate
+  const addConRe = /\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([\w."]+)\s+ADD\s+CONSTRAINT\b[^;]*(;|$)/gi;
+  while ((m = addConRe.exec(sql)) !== null) {
+    const fragment = m[0];
+    const table = bareTable(m[1]);
+    const fragUpper = fragment.toUpperCase();
+    // Skip if NOT VALID is already present
+    if (!/\bNOT\s+VALID\b/.test(fragUpper)) {
+      issues.push({
+        severity: "warning",
+        code: "ADD_CONSTRAINT_SCANS_TABLE",
+        message: "ADD CONSTRAINT validates all existing rows and holds an exclusive lock during the scan.",
+        suggestion: "Use ADD CONSTRAINT ... NOT VALID to skip validation, then VALIDATE CONSTRAINT in a separate transaction.",
+        lineNumber: findLineNumber(sql, m.index),
+        tableName: table,
+      });
+    }
+  }
+
+  // 5e. CREATE INDEX CONCURRENTLY inside transaction (BEGIN/COMMIT)
+  const hasTransaction = /\bBEGIN\b/i.test(sql) || /\bSTART\s+TRANSACTION\b/i.test(sql);
+  const hasConcurrently = /\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\b/i.test(sql);
+  if (hasTransaction && hasConcurrently) {
+    issues.push({
+      severity: "error",
+      code: "CONCURRENTLY_IN_TRANSACTION",
+      message: "CREATE INDEX CONCURRENTLY cannot run inside a transaction block. It will fail at runtime.",
+      suggestion: "Remove the BEGIN/COMMIT wrapper, or use a migration tool that runs CONCURRENTLY outside transactions.",
+    });
+  }
+
   // 6. TRUNCATE
   const truncRe = /\bTRUNCATE\b/gi;
   while ((m = truncRe.exec(sql)) !== null) {

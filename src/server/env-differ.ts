@@ -1,5 +1,7 @@
 import { Pool } from "pg";
 import { getAdvisorReport } from "./advisor.js";
+import { buildLiveSnapshot } from "./schema-tracker.js";
+import { diffSnapshots } from "./schema-diff.js";
 
 export interface ColumnInfo {
   name: string;
@@ -27,11 +29,26 @@ export interface IndexDiff {
   extraIndexes: string[];   // target has, source doesn't
 }
 
+export interface ConstraintDiff {
+  table: string | null;
+  type: "missing" | "extra" | "modified";
+  name: string;
+  detail: string;
+}
+
+export interface EnumDiff {
+  type: "missing" | "extra" | "modified";
+  name: string;
+  detail: string;
+}
+
 export interface SchemaDiff {
   missingTables: string[];
   extraTables: string[];
   columnDiffs: ColumnDiff[];
   indexDiffs: IndexDiff[];
+  constraintDiffs: ConstraintDiff[];
+  enumDiffs: EnumDiff[];
 }
 
 export interface HealthDiff {
@@ -218,6 +235,8 @@ function countSchemaDrifts(schema: SchemaDiff): number {
   for (const id of schema.indexDiffs) {
     n += id.missingIndexes.length + id.extraIndexes.length;
   }
+  n += (schema.constraintDiffs ?? []).length;
+  n += (schema.enumDiffs ?? []).length;
   return n;
 }
 
@@ -232,7 +251,7 @@ export async function diffEnvironments(
   const targetPool = new Pool({ connectionString: targetConn, connectionTimeoutMillis: 10000 });
 
   try {
-    // Run schema queries in parallel
+    // Run all schema queries in parallel (basic + deep snapshots for constraints/enums)
     const [
       sourceTables,
       targetTables,
@@ -240,6 +259,8 @@ export async function diffEnvironments(
       targetCols,
       sourceIdxs,
       targetIdxs,
+      sourceSnap,
+      targetSnap,
     ] = await Promise.all([
       fetchTables(sourcePool),
       fetchTables(targetPool),
@@ -247,17 +268,46 @@ export async function diffEnvironments(
       fetchColumns(targetPool),
       fetchIndexes(sourcePool),
       fetchIndexes(targetPool),
+      buildLiveSnapshot(sourcePool).catch(() => null),
+      buildLiveSnapshot(targetPool).catch(() => null),
     ]);
 
     const { missingTables, extraTables } = diffTables(sourceTables, targetTables);
-    const sourceSet = new Set(sourceTables);
     const targetSet = new Set(targetTables);
     const commonTables = sourceTables.filter((t) => targetSet.has(t));
 
     const columnDiffs = diffColumns(sourceCols, targetCols, commonTables);
     const indexDiffs = diffIndexes(sourceIdxs, targetIdxs, commonTables);
 
-    const schema: SchemaDiff = { missingTables, extraTables, columnDiffs, indexDiffs };
+    // Constraint + enum diffs via snapshot comparison
+    const constraintDiffs: ConstraintDiff[] = [];
+    const enumDiffs: EnumDiff[] = [];
+
+    if (sourceSnap && targetSnap) {
+      // diffSnapshots treats source as "old" and target as "new":
+      // added = target has, source doesn't (extra in target)
+      // removed = source has, target doesn't (missing in target)
+      const snapChanges = diffSnapshots(sourceSnap, targetSnap);
+
+      for (const c of snapChanges) {
+        if (c.object_type === "constraint") {
+          constraintDiffs.push({
+            table: c.table_name ?? null,
+            type: c.change_type === "added" ? "extra" : c.change_type === "removed" ? "missing" : "modified",
+            name: c.detail.split(" ")[1] ?? c.detail,
+            detail: c.detail,
+          });
+        } else if (c.object_type === "enum") {
+          enumDiffs.push({
+            type: c.change_type === "added" ? "extra" : c.change_type === "removed" ? "missing" : "modified",
+            name: c.detail.split(" ")[1] ?? c.detail,
+            detail: c.detail,
+          });
+        }
+      }
+    }
+
+    const schema: SchemaDiff = { missingTables, extraTables, columnDiffs, indexDiffs, constraintDiffs, enumDiffs };
     const schemaDrifts = countSchemaDrifts(schema);
 
     let health: HealthDiff | undefined;
@@ -383,8 +433,52 @@ export function formatTextDiff(result: EnvDiffResult): string {
     lines.push(...extraIdxs);
   }
 
-  if (schema.missingTables.length === 0 && schema.extraTables.length === 0 &&
-      schema.columnDiffs.length === 0 && schema.indexDiffs.length === 0) {
+  // Constraint diffs
+  const missingConstraints = (schema.constraintDiffs ?? []).filter((c) => c.type === "missing");
+  const extraConstraints = (schema.constraintDiffs ?? []).filter((c) => c.type === "extra");
+  const modifiedConstraints = (schema.constraintDiffs ?? []).filter((c) => c.type === "modified");
+
+  if (missingConstraints.length > 0) {
+    lines.push(`  ✗ target missing constraints:`);
+    for (const c of missingConstraints) {
+      lines.push(`      ${c.table ? c.table + ": " : ""}${c.detail}`);
+    }
+  }
+  if (extraConstraints.length > 0) {
+    lines.push(`  ⚠ target has extra constraints:`);
+    for (const c of extraConstraints) {
+      lines.push(`      ${c.table ? c.table + ": " : ""}${c.detail}`);
+    }
+  }
+  if (modifiedConstraints.length > 0) {
+    lines.push(`  ~ constraint differences:`);
+    for (const c of modifiedConstraints) {
+      lines.push(`      ${c.table ? c.table + ": " : ""}${c.detail}`);
+    }
+  }
+
+  // Enum diffs
+  const missingEnums = (schema.enumDiffs ?? []).filter((e) => e.type === "missing");
+  const extraEnums = (schema.enumDiffs ?? []).filter((e) => e.type === "extra");
+  const modifiedEnums = (schema.enumDiffs ?? []).filter((e) => e.type === "modified");
+
+  if (missingEnums.length > 0) {
+    lines.push(`  ✗ target missing enums:`);
+    for (const e of missingEnums) lines.push(`      ${e.detail}`);
+  }
+  if (extraEnums.length > 0) {
+    lines.push(`  ⚠ target has extra enums:`);
+    for (const e of extraEnums) lines.push(`      ${e.detail}`);
+  }
+  if (modifiedEnums.length > 0) {
+    lines.push(`  ~ enum differences:`);
+    for (const e of modifiedEnums) lines.push(`      ${e.detail}`);
+  }
+
+  const noSchemaChanges = schema.missingTables.length === 0 && schema.extraTables.length === 0 &&
+      schema.columnDiffs.length === 0 && schema.indexDiffs.length === 0 &&
+      (schema.constraintDiffs ?? []).length === 0 && (schema.enumDiffs ?? []).length === 0;
+  if (noSchemaChanges) {
     lines.push(`  ✓ Schemas are identical`);
   }
 
@@ -454,6 +548,22 @@ export function formatMdDiff(result: EnvDiffResult): string {
 
   if (missingIdxItems.length > 0) rows.push([`❌ Missing indexes`, missingIdxItems.join(", ")]);
   if (extraIdxItems.length > 0) rows.push([`⚠️ Extra indexes`, extraIdxItems.join(", ")]);
+
+  // Constraints
+  const missingConItems = (schema.constraintDiffs ?? []).filter((c) => c.type === "missing").map((c) => c.detail);
+  const extraConItems = (schema.constraintDiffs ?? []).filter((c) => c.type === "extra").map((c) => c.detail);
+  const modConItems = (schema.constraintDiffs ?? []).filter((c) => c.type === "modified").map((c) => c.detail);
+  if (missingConItems.length > 0) rows.push([`❌ Missing constraints`, missingConItems.join("; ")]);
+  if (extraConItems.length > 0) rows.push([`⚠️ Extra constraints`, extraConItems.join("; ")]);
+  if (modConItems.length > 0) rows.push([`~ Modified constraints`, modConItems.join("; ")]);
+
+  // Enums
+  const missingEnumItems = (schema.enumDiffs ?? []).filter((e) => e.type === "missing").map((e) => e.detail);
+  const extraEnumItems = (schema.enumDiffs ?? []).filter((e) => e.type === "extra").map((e) => e.detail);
+  const modEnumItems = (schema.enumDiffs ?? []).filter((e) => e.type === "modified").map((e) => e.detail);
+  if (missingEnumItems.length > 0) rows.push([`❌ Missing enums`, missingEnumItems.join("; ")]);
+  if (extraEnumItems.length > 0) rows.push([`⚠️ Extra enums`, extraEnumItems.join("; ")]);
+  if (modEnumItems.length > 0) rows.push([`~ Modified enums`, modEnumItems.join("; ")]);
 
   if (rows.length > 0) {
     lines.push(`| Type | Details |`);

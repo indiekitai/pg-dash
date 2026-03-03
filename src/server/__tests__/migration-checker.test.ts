@@ -265,6 +265,61 @@ describe("comment stripping — no false positives", () => {
 
 // ─── MD format check ──────────────────────────────────────────────────────────
 
+describe("advanced checks — ALTER TYPE, DROP COLUMN, ADD CONSTRAINT, CONCURRENTLY in txn", () => {
+  it("warns on ALTER COLUMN TYPE", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users ALTER COLUMN age TYPE BIGINT;"
+    );
+    const issue = result.issues.find((i) => i.code === "ALTER_COLUMN_TYPE");
+    expect(issue).toBeDefined();
+    expect(issue?.severity).toBe("warning");
+    expect(issue?.tableName).toBe("users");
+  });
+
+  it("reports info on DROP COLUMN", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users DROP COLUMN legacy_field;"
+    );
+    const issue = result.issues.find((i) => i.code === "DROP_COLUMN");
+    expect(issue).toBeDefined();
+    expect(issue?.severity).toBe("info");
+  });
+
+  it("warns on ADD CONSTRAINT without NOT VALID", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE orders ADD CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id);"
+    );
+    const issue = result.issues.find((i) => i.code === "ADD_CONSTRAINT_SCANS_TABLE");
+    expect(issue).toBeDefined();
+    expect(issue?.severity).toBe("warning");
+  });
+
+  it("does not warn on ADD CONSTRAINT ... NOT VALID", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE orders ADD CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) NOT VALID;"
+    );
+    const issue = result.issues.find((i) => i.code === "ADD_CONSTRAINT_SCANS_TABLE");
+    expect(issue).toBeUndefined();
+  });
+
+  it("errors on CREATE INDEX CONCURRENTLY inside a transaction", async () => {
+    const result = await analyzeMigration(
+      "BEGIN;\nCREATE INDEX CONCURRENTLY idx_users_email ON users (email);\nCOMMIT;"
+    );
+    const issue = result.issues.find((i) => i.code === "CONCURRENTLY_IN_TRANSACTION");
+    expect(issue).toBeDefined();
+    expect(issue?.severity).toBe("error");
+  });
+
+  it("does not error CONCURRENTLY_IN_TRANSACTION when no transaction wrapper", async () => {
+    const result = await analyzeMigration(
+      "CREATE INDEX CONCURRENTLY idx_users_email ON users (email);"
+    );
+    const issue = result.issues.find((i) => i.code === "CONCURRENTLY_IN_TRANSACTION");
+    expect(issue).toBeUndefined();
+  });
+});
+
 describe("formatMarkdown output", () => {
   it("md output should contain table header and result row", async () => {
     const result = await analyzeMigration(

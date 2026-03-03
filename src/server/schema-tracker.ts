@@ -5,6 +5,45 @@ import type Database from "better-sqlite3";
 import { getSchemaTables, getSchemaTableDetail, getSchemaEnums } from "./queries/schema.js";
 import { diffSnapshots, type SchemaSnapshot, type SchemaChange } from "./schema-diff.js";
 
+/** Build a full schema snapshot from a live pool — reusable for env comparison */
+export async function buildLiveSnapshot(pool: Pool): Promise<SchemaSnapshot> {
+  const tables = await getSchemaTables(pool);
+  const enums = await getSchemaEnums(pool);
+
+  const detailedTables = await Promise.all(
+    tables.map(async (t: any) => {
+      const detail = await getSchemaTableDetail(pool, `${t.schema}.${t.name}`);
+      if (!detail) return null;
+      return {
+        name: detail.name,
+        schema: detail.schema,
+        columns: detail.columns.map((c: any) => ({
+          name: c.name,
+          type: c.type,
+          nullable: c.nullable,
+          default_value: c.default_value,
+        })),
+        indexes: detail.indexes.map((i: any) => ({
+          name: i.name,
+          definition: i.definition,
+          is_unique: i.is_unique,
+          is_primary: i.is_primary,
+        })),
+        constraints: detail.constraints.map((c: any) => ({
+          name: c.name,
+          type: c.type,
+          definition: c.definition,
+        })),
+      };
+    })
+  );
+
+  return {
+    tables: detailedTables.filter(Boolean) as SchemaSnapshot["tables"],
+    enums: enums.map((e: any) => ({ name: e.name, schema: e.schema, values: e.values })),
+  };
+}
+
 export class SchemaTracker {
   private db: Database.Database;
   private pool: Pool;
@@ -67,41 +106,7 @@ export class SchemaTracker {
   }
 
   private async buildSnapshot(): Promise<SchemaSnapshot> {
-    const tables = await getSchemaTables(this.pool);
-    const enums = await getSchemaEnums(this.pool);
-
-    const detailedTables = await Promise.all(
-      tables.map(async (t: any) => {
-        const detail = await getSchemaTableDetail(this.pool, `${t.schema}.${t.name}`);
-        if (!detail) return null;
-        return {
-          name: detail.name,
-          schema: detail.schema,
-          columns: detail.columns.map((c: any) => ({
-            name: c.name,
-            type: c.type,
-            nullable: c.nullable,
-            default_value: c.default_value,
-          })),
-          indexes: detail.indexes.map((i: any) => ({
-            name: i.name,
-            definition: i.definition,
-            is_unique: i.is_unique,
-            is_primary: i.is_primary,
-          })),
-          constraints: detail.constraints.map((c: any) => ({
-            name: c.name,
-            type: c.type,
-            definition: c.definition,
-          })),
-        };
-      })
-    );
-
-    return {
-      tables: detailedTables.filter(Boolean) as SchemaSnapshot["tables"],
-      enums: enums.map((e: any) => ({ name: e.name, schema: e.schema, values: e.values })),
-    };
+    return buildLiveSnapshot(this.pool);
   }
 
   start() {

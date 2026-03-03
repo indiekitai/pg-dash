@@ -459,6 +459,14 @@ if (subcommand === "check") {
             console.log(`::notice::diff-env: target has extra index: ${id.table}.${idx}`);
           }
         }
+        for (const c of result.schema.constraintDiffs ?? []) {
+          const level = c.type === "missing" ? "error" : c.type === "extra" ? "notice" : "warning";
+          console.log(`::${level}::diff-env: constraint ${c.type}: ${c.detail}`);
+        }
+        for (const e of result.schema.enumDiffs ?? []) {
+          const level = e.type === "missing" ? "error" : e.type === "extra" ? "notice" : "warning";
+          console.log(`::${level}::diff-env: enum ${e.type}: ${e.detail}`);
+        }
       }
     }
 
