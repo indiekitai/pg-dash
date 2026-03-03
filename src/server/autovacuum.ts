@@ -26,18 +26,15 @@ export interface AutovacuumReport {
 
 function classifyStatus(
   lastAutoVacuum: Date | null,
-  vacuumCount: number,
   deadTuples: number,
-  now: Date
-): "ok" | "stale" | "never" | "overdue" {
-  if (lastAutoVacuum === null && vacuumCount === 0) return "never";
+  vacuumCount: number
+): AutovacuumTableStatus["status"] {
+  if (lastAutoVacuum === null) return "never";  // covers all null cases
 
-  if (lastAutoVacuum !== null) {
-    const ageDays = (now.getTime() - lastAutoVacuum.getTime()) / (1000 * 60 * 60 * 24);
-    if (ageDays > 7 && deadTuples > 10000) return "overdue";
-    if (ageDays > 3) return "stale";
-  }
+  const daysSince = (Date.now() - lastAutoVacuum.getTime()) / (1000 * 60 * 60 * 24);
 
+  if (daysSince > 7 && deadTuples > 10_000) return "overdue";
+  if (daysSince > 3) return "stale";
   return "ok";
 }
 
@@ -73,15 +70,13 @@ export async function getAutovacuumReport(pool: Pool): Promise<AutovacuumReport>
     `),
   ]);
 
-  const now = new Date();
-
   const tables: AutovacuumTableStatus[] = tableResult.rows.map((row: any) => {
     const lastAutoVacuumDate = row.last_autovacuum ? new Date(row.last_autovacuum) : null;
     const deadTuples = parseInt(row.n_dead_tup, 10) || 0;
     const liveTuples = parseInt(row.n_live_tup, 10) || 0;
     const vacuumCount = parseInt(row.autovacuum_count, 10) || 0;
     const analyzeCount = parseInt(row.autoanalyze_count, 10) || 0;
-    const status = classifyStatus(lastAutoVacuumDate, vacuumCount, deadTuples, now);
+    const status = classifyStatus(lastAutoVacuumDate, deadTuples, vacuumCount);
     const table = row.relname as string;
 
     return {
@@ -98,18 +93,18 @@ export async function getAutovacuumReport(pool: Pool): Promise<AutovacuumReport>
     };
   });
 
-  const settingsMap: Record<string, string> = {};
+  const settingsMap = new Map<string, string>();
   for (const row of settingsResult.rows) {
-    settingsMap[row.name] = row.setting;
+    settingsMap.set(row.name, row.setting);
   }
 
   return {
     tables,
     settings: {
-      autovacuumEnabled: settingsMap["autovacuum"] !== "off",
-      vacuumCostDelay: settingsMap["autovacuum_vacuum_cost_delay"] ?? "2",
-      autovacuumMaxWorkers: parseInt(settingsMap["autovacuum_max_workers"] ?? "3", 10),
-      autovacuumNaptime: settingsMap["autovacuum_naptime"] ?? "60",
+      autovacuumEnabled: settingsMap.get("autovacuum") !== "off",
+      vacuumCostDelay: `${settingsMap.get("autovacuum_vacuum_cost_delay") ?? "2"}ms`,
+      autovacuumMaxWorkers: parseInt(settingsMap.get("autovacuum_max_workers") ?? "3", 10),
+      autovacuumNaptime: `${settingsMap.get("autovacuum_naptime") ?? "60"}s`,
     },
     checkedAt: new Date().toISOString(),
   };

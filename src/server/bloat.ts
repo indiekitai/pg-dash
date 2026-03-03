@@ -7,6 +7,7 @@ export interface TableBloat {
   deadRows: number;
   bloatPercent: number;    // dead / (live + dead) * 100, rounded 1dp
   lastAutoVacuum: string | null;
+  lastVacuum: string | null;
   suggestion: string;
 }
 
@@ -59,6 +60,7 @@ export async function getBloatReport(pool: Pool): Promise<BloatReport> {
       deadRows: dead,
       bloatPercent,
       lastAutoVacuum: row.last_autovacuum ? new Date(row.last_autovacuum).toISOString() : null,
+      lastVacuum: row.last_vacuum ? new Date(row.last_vacuum).toISOString() : null,
       suggestion: getSuggestion(table, bloatPercent),
     });
   }

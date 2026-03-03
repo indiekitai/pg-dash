@@ -106,4 +106,35 @@ describe("getLockReport", () => {
     const report = await getLockReport(pool as any);
     expect(report.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
+
+  it("deduplicates lock rows with same blocked/blocking pid but different locktype", async () => {
+    // Same (blocked_pid=100, blocking_pid=200) pair appearing twice with different locktypes
+    const pool = makePool([
+      {
+        blocked_pid: "100",
+        blocked_query: "SELECT * FROM orders FOR UPDATE",
+        blocked_secs: "30",
+        blocking_pid: "200",
+        blocking_query: "UPDATE orders SET status = 1",
+        blocking_secs: "60",
+        table_name: "orders",
+        locktype: "relation",
+      },
+      {
+        blocked_pid: "100",
+        blocked_query: "SELECT * FROM orders FOR UPDATE",
+        blocked_secs: "30",
+        blocking_pid: "200",
+        blocking_query: "UPDATE orders SET status = 1",
+        blocking_secs: "60",
+        table_name: "orders",
+        locktype: "tuple",  // different locktype, same pair
+      },
+    ], []);
+    const report = await getLockReport(pool as any);
+    // Should be deduplicated to a single entry
+    expect(report.waitingLocks).toHaveLength(1);
+    expect(report.waitingLocks[0].blockedPid).toBe(100);
+    expect(report.waitingLocks[0].blockingPid).toBe(200);
+  });
 });

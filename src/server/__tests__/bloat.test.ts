@@ -88,4 +88,21 @@ describe("getBloatReport", () => {
     const report = await getBloatReport(pool as any);
     expect(report.tables[0].lastAutoVacuum).not.toBeNull();
   });
+
+  it("lastVacuum is null when last_vacuum is null in query result", async () => {
+    const pool = makePool([
+      { schemaname: "public", table_name: "t1", n_live_tup: "50", n_dead_tup: "50", last_autovacuum: null, last_vacuum: null },
+    ]);
+    const report = await getBloatReport(pool as any);
+    expect(report.tables[0].lastVacuum).toBeNull();
+  });
+
+  it("lastVacuum is populated as ISO string when last_vacuum is non-null", async () => {
+    const vacuumTime = new Date("2026-01-10T08:00:00.000Z");
+    const pool = makePool([
+      { schemaname: "public", table_name: "t1", n_live_tup: "50", n_dead_tup: "50", last_autovacuum: null, last_vacuum: vacuumTime.toISOString() },
+    ]);
+    const report = await getBloatReport(pool as any);
+    expect(report.tables[0].lastVacuum).toBe(vacuumTime.toISOString());
+  });
 });

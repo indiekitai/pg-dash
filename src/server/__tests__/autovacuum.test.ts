@@ -31,6 +31,15 @@ describe("getAutovacuumReport", () => {
     expect(report.tables[0].suggestion).toContain("never been autovacuumed");
   });
 
+  it("status='never' when lastAutoVacuum=null even if vacuumCount > 0 (Fix 6 regression)", async () => {
+    // Previously this returned "ok" due to the null check gap — should return "never"
+    const pool = makePool([
+      { schemaname: "public", relname: "weird_table", last_autovacuum: null, last_autoanalyze: null, n_dead_tup: "0", n_live_tup: "100", autovacuum_count: "5", autoanalyze_count: "5" },
+    ]);
+    const report = await getAutovacuumReport(pool as any);
+    expect(report.tables[0].status).toBe("never");
+  });
+
   it("status='overdue' when last vacuum > 7 days ago + many dead tuples", async () => {
     const pool = makePool([
       { schemaname: "public", relname: "bloated", last_autovacuum: daysAgo(10), last_autoanalyze: null, n_dead_tup: "50000", n_live_tup: "100000", autovacuum_count: "5", autoanalyze_count: "5" },
@@ -66,7 +75,7 @@ describe("getAutovacuumReport", () => {
     expect(report.tables[0].suggestion).toBeNull();
   });
 
-  it("parses autovacuum settings correctly", async () => {
+  it("parses autovacuum settings correctly with units", async () => {
     const pool = makePool([], [
       { name: "autovacuum", setting: "on" },
       { name: "autovacuum_vacuum_cost_delay", setting: "10" },
@@ -75,9 +84,9 @@ describe("getAutovacuumReport", () => {
     ]);
     const report = await getAutovacuumReport(pool as any);
     expect(report.settings.autovacuumEnabled).toBe(true);
-    expect(report.settings.vacuumCostDelay).toBe("10");
+    expect(report.settings.vacuumCostDelay).toBe("10ms");
     expect(report.settings.autovacuumMaxWorkers).toBe(5);
-    expect(report.settings.autovacuumNaptime).toBe("120");
+    expect(report.settings.autovacuumNaptime).toBe("120s");
   });
 
   it("autovacuumEnabled=false when setting='off'", async () => {

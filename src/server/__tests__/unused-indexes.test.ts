@@ -1,8 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { getUnusedIndexes, formatBytes } from "../unused-indexes.js";
 
-function makePool(rows: any[]) {
-  return { query: vi.fn().mockResolvedValue({ rows }) };
+// After Fix 3, getUnusedIndexes makes two queries: main index query + pg_stat_bgwriter
+function makePool(indexRows: any[], bgwriterRows: any[] = [{ stats_reset: null }]) {
+  const query = vi.fn()
+    .mockResolvedValueOnce({ rows: indexRows })
+    .mockResolvedValueOnce({ rows: bgwriterRows });
+  return { query };
 }
 
 describe("getUnusedIndexes", () => {
@@ -44,6 +48,13 @@ describe("getUnusedIndexes", () => {
     expect(formatBytes(2.5 * 1024 * 1024 * 1024)).toBe("2.5 GB");
   });
 
+  it("formats bytes: TB range (>= 1TB)", () => {
+    expect(formatBytes(1024 ** 4)).toBe("1.0 TB");
+    expect(formatBytes(2.5 * 1024 ** 4)).toBe("2.5 TB");
+    // Should NOT render as thousands of GB
+    expect(formatBytes(1024 ** 4)).not.toContain("GB");
+  });
+
   it("returns indexes sorted by size DESC (as returned by query)", async () => {
     const pool = makePool([
       { schemaname: "public", table_name: "orders", index_name: "idx_big", index_size_bytes: "5000000", idx_scan: "0", indexdef: "CREATE INDEX idx_big ON public.orders" },
@@ -54,13 +65,30 @@ describe("getUnusedIndexes", () => {
     expect(report.indexes[1].index).toBe("idx_small");
   });
 
-  it("builds correct suggestion message", async () => {
+  it("builds correct suggestion message with quoted index name", async () => {
     const pool = makePool([
       { schemaname: "public", table_name: "orders", index_name: "idx_orders_x", index_size_bytes: "1024", idx_scan: "0", indexdef: "CREATE INDEX idx_orders_x ON public.orders" },
     ]);
     const report = await getUnusedIndexes(pool as any);
-    expect(report.indexes[0].suggestion).toContain("DROP INDEX CONCURRENTLY idx_orders_x");
+    expect(report.indexes[0].suggestion).toContain('DROP INDEX CONCURRENTLY "idx_orders_x"');
     expect(report.indexes[0].suggestion).toContain("0 scans");
+  });
+
+  it("quotes reserved-word index names correctly in suggestion", async () => {
+    const pool = makePool([
+      { schemaname: "public", table_name: "products", index_name: "order", index_size_bytes: "1024", idx_scan: "0", indexdef: "CREATE INDEX order ON public.products" },
+    ]);
+    const report = await getUnusedIndexes(pool as any);
+    // Reserved word "order" must be quoted
+    expect(report.indexes[0].suggestion).toContain('DROP INDEX CONCURRENTLY "order"');
+  });
+
+  it("escapes double-quotes in index names", async () => {
+    const pool = makePool([
+      { schemaname: "public", table_name: "products", index_name: 'idx_"tricky"', index_size_bytes: "1024", idx_scan: "0", indexdef: 'CREATE INDEX idx_"tricky" ON public.products' },
+    ]);
+    const report = await getUnusedIndexes(pool as any);
+    expect(report.indexes[0].suggestion).toContain('DROP INDEX CONCURRENTLY "idx_""tricky"""');
   });
 
   it("maps schema, table, index, scans correctly", async () => {
@@ -73,6 +101,17 @@ describe("getUnusedIndexes", () => {
     expect(idx.table).toBe("products");
     expect(idx.index).toBe("idx_products_sku");
     expect(idx.scans).toBe(0);
+    // Default bgwriter has stats_reset: null → lastUsed is null
     expect(idx.lastUsed).toBeNull();
+  });
+
+  it("lastUsed reflects stats_reset timestamp when available", async () => {
+    const statsResetTime = "2026-01-15T10:00:00.000Z";
+    const pool = makePool(
+      [{ schemaname: "public", table_name: "orders", index_name: "idx_orders_old", index_size_bytes: "1024", idx_scan: "0", indexdef: "CREATE INDEX idx_orders_old ON public.orders" }],
+      [{ stats_reset: statsResetTime }]
+    );
+    const report = await getUnusedIndexes(pool as any);
+    expect(report.indexes[0].lastUsed).toBe(new Date(statsResetTime).toISOString());
   });
 });

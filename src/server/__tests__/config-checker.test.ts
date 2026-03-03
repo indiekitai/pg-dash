@@ -7,6 +7,7 @@ function makePool(rows: Array<{ name: string; setting: string; unit?: string | n
 }
 
 // Full baseline settings — nothing should be flagged
+// Note: statement_timeout removed (Fix 9d — dead code cleanup)
 function baseSettings(): Array<{ name: string; setting: string; unit?: string | null }> {
   return [
     { name: "max_connections", setting: "100", unit: null },
@@ -22,7 +23,6 @@ function baseSettings(): Array<{ name: string; setting: string; unit?: string | 
     { name: "autovacuum_analyze_scale_factor", setting: "0.02", unit: null },
     { name: "log_min_duration_statement", setting: "1000", unit: null }, // NOT -1
     { name: "idle_in_transaction_session_timeout", setting: "60000", unit: null }, // NOT 0
-    { name: "statement_timeout", setting: "0", unit: null },
     { name: "effective_io_concurrency", setting: "200", unit: null },   // NOT 1
   ];
 }
@@ -58,7 +58,15 @@ describe("getConfigReport", () => {
     expect(rec?.recommendedValue).toBe("16MB");
   });
 
-  it("does NOT flag work_mem when not 4MB", async () => {
+  it("flags work_mem = 3MB (< 4MB) as info — Fix 9c: <= threshold", async () => {
+    const pool = makePool(settingsWith({ work_mem: "3" })); // unit MB, 3 <= 4
+    const report = await getConfigReport(pool as any);
+    const rec = report.recommendations.find((r) => r.setting === "work_mem");
+    expect(rec).toBeDefined();
+    expect(rec?.severity).toBe("info");
+  });
+
+  it("does NOT flag work_mem when not <= 4MB", async () => {
     const pool = makePool(baseSettings()); // work_mem = 16MB
     const report = await getConfigReport(pool as any);
     const rec = report.recommendations.find((r) => r.setting === "work_mem");
@@ -81,8 +89,10 @@ describe("getConfigReport", () => {
     expect(rec).toBeUndefined();
   });
 
-  it("flags random_page_cost > 2.0 as info", async () => {
-    const pool = makePool(settingsWith({ random_page_cost: "4" }));
+  it("flags random_page_cost > 2.0 as info (e.g. 3.0 triggers recommendation — Fix 9a dead code)", async () => {
+    // Previously `v > 2.0 && rpcSetting !== "1.1"` was used (dead code since "3.0" != "1.1" anyway)
+    // After fix: just `v > 2.0` — this test verifies 3.0 triggers
+    const pool = makePool(settingsWith({ random_page_cost: "3.0" }));
     const report = await getConfigReport(pool as any);
     const rec = report.recommendations.find((r) => r.setting === "random_page_cost");
     expect(rec).toBeDefined();
@@ -145,14 +155,36 @@ describe("getConfigReport", () => {
     expect(rec?.recommendedValue).toBe("200");
   });
 
-  it("returns correct serverInfo fields", async () => {
+  it("returns correct serverInfo fields — Fix 9b: human-readable memory values", async () => {
     const pool = makePool(baseSettings());
     const report = await getConfigReport(pool as any);
     expect(report.serverInfo.maxConnections).toBe(100);
-    expect(report.serverInfo.totalMemoryMb).toBeNull();
+    // totalMemoryMb removed (Fix 9e) — no longer in serverInfo
     expect(typeof report.serverInfo.sharedBuffers).toBe("string");
     expect(typeof report.serverInfo.workMem).toBe("string");
     expect(report.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("sharedBuffers in serverInfo is returned as human-readable MB string — Fix 9b", async () => {
+    // shared_buffers = "256" with unit "MB" → formatMemSetting → "256MB"
+    const pool = makePool(baseSettings());
+    const report = await getConfigReport(pool as any);
+    expect(report.serverInfo.sharedBuffers).toBe("256MB");
+    // Should NOT be raw numeric string like "256" or "268435456"
+    expect(report.serverInfo.sharedBuffers).not.toBe("256");
+  });
+
+  it("workMem in serverInfo is returned as human-readable string — Fix 9b", async () => {
+    const pool = makePool(baseSettings()); // work_mem = 16MB
+    const report = await getConfigReport(pool as any);
+    expect(report.serverInfo.workMem).toBe("16MB");
+  });
+
+  it("serverInfo does NOT contain totalMemoryMb — Fix 9e: removed null stub", async () => {
+    const pool = makePool(baseSettings());
+    const report = await getConfigReport(pool as any);
+    // totalMemoryMb was always null and misleading — should be absent
+    expect("totalMemoryMb" in report.serverInfo).toBe(false);
   });
 
   it("with all recommended values, returns zero recommendations", async () => {

@@ -12,7 +12,6 @@ export interface ConfigRecommendation {
 export interface ConfigReport {
   recommendations: ConfigRecommendation[];
   serverInfo: {
-    totalMemoryMb: number | null;
     maxConnections: number;
     sharedBuffers: string;
     workMem: string;
@@ -45,6 +44,17 @@ function settingToMb(value: string, unit: string | undefined): number {
   return settingToBytes(value, unit) / (1024 * 1024);
 }
 
+// Format a memory setting to a human-readable string with units
+function formatMemSetting(rawValue: string | null | undefined, unit?: string): string {
+  if (!rawValue) return "unknown";
+  const bytes = settingToBytes(rawValue, unit ?? "");
+  if (bytes <= 0 || isNaN(bytes)) return rawValue; // fallback for special values like -1 (auto)
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)}GB`;
+  if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)}MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${bytes}B`;
+}
+
 export async function getConfigReport(pool: Pool): Promise<ConfigReport> {
   const result = await pool.query(`
     SELECT name, setting, unit
@@ -55,7 +65,7 @@ export async function getConfigReport(pool: Pool): Promise<ConfigReport> {
       'checkpoint_completion_target', 'random_page_cost',
       'autovacuum_vacuum_scale_factor', 'autovacuum_analyze_scale_factor',
       'log_min_duration_statement', 'idle_in_transaction_session_timeout',
-      'statement_timeout', 'effective_io_concurrency'
+      'effective_io_concurrency'
     )
   `);
 
@@ -85,11 +95,11 @@ export async function getConfigReport(pool: Pool): Promise<ConfigReport> {
     }
   }
 
-  // 2. work_mem: = 4MB → info
+  // 2. work_mem: <= 4MB → info
   const workMemSetting = get("work_mem");
   if (workMemSetting !== null) {
     const mb = settingToMb(workMemSetting, getUnit("work_mem"));
-    if (mb === 4) {
+    if (mb <= 4) {
       recommendations.push({
         setting: "work_mem",
         currentValue: "4MB",
@@ -121,7 +131,7 @@ export async function getConfigReport(pool: Pool): Promise<ConfigReport> {
   const rpcSetting = get("random_page_cost");
   if (rpcSetting !== null) {
     const v = parseFloat(rpcSetting);
-    if (v > 2.0 && rpcSetting !== "1.1") {
+    if (v > 2.0) {
       recommendations.push({
         setting: "random_page_cost",
         currentValue: rpcSetting,
@@ -190,11 +200,11 @@ export async function getConfigReport(pool: Pool): Promise<ConfigReport> {
 
   // 9. wal_buffers: skip if -1 (auto)
 
-  // 10. maintenance_work_mem: = 64MB → info
+  // 10. maintenance_work_mem: <= 64MB → info
   const mwmSetting = get("maintenance_work_mem");
   if (mwmSetting !== null) {
     const mb = settingToMb(mwmSetting, getUnit("maintenance_work_mem"));
-    if (mb === 64) {
+    if (mb <= 64) {
       recommendations.push({
         setting: "maintenance_work_mem",
         currentValue: "64MB",
@@ -209,12 +219,11 @@ export async function getConfigReport(pool: Pool): Promise<ConfigReport> {
   const maxConnSetting = get("max_connections");
 
   const serverInfo = {
-    totalMemoryMb: null as number | null,
     maxConnections: maxConnSetting !== null ? parseInt(maxConnSetting, 10) : 0,
-    sharedBuffers: sharedBuffersSetting ?? "",
-    workMem: workMemSetting ?? "",
-    effectiveCacheSize: get("effective_cache_size") ?? "",
-    maintenanceWorkMem: mwmSetting ?? "",
+    sharedBuffers: formatMemSetting(sharedBuffersSetting, getUnit("shared_buffers")),
+    workMem: formatMemSetting(workMemSetting, getUnit("work_mem")),
+    effectiveCacheSize: formatMemSetting(get("effective_cache_size"), getUnit("effective_cache_size")),
+    maintenanceWorkMem: formatMemSetting(mwmSetting, getUnit("maintenance_work_mem")),
     walBuffers: get("wal_buffers") ?? "",
     checkpointCompletionTarget: cctSetting ?? "",
     randomPageCost: rpcSetting ?? "",

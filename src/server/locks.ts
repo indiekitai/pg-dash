@@ -73,16 +73,26 @@ export async function getLockReport(pool: Pool): Promise<LockReport> {
     `),
   ]);
 
-  const waitingLocks: LockWait[] = locksResult.rows.map((row: any) => ({
-    blockedPid: parseInt(row.blocked_pid, 10),
-    blockedQuery: row.blocked_query as string,
-    blockedDuration: formatDurationSecs(parseInt(row.blocked_secs, 10) || 0),
-    blockingPid: parseInt(row.blocking_pid, 10),
-    blockingQuery: row.blocking_query as string,
-    blockingDuration: formatDurationSecs(parseInt(row.blocking_secs, 10) || 0),
-    table: row.table_name ?? null,
-    lockType: row.locktype as string,
-  }));
+  // Deduplicate by (blockedPid, blockingPid) — same pair may appear multiple times
+  // for different lock types; keep only the first occurrence.
+  const seen = new Set<string>();
+  const waitingLocks: LockWait[] = [];
+  for (const row of locksResult.rows) {
+    const key = `${row.blocked_pid}:${row.blocking_pid}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      waitingLocks.push({
+        blockedPid: parseInt(row.blocked_pid, 10),
+        blockedQuery: row.blocked_query as string,
+        blockedDuration: formatDurationSecs(parseInt(row.blocked_secs, 10) || 0),
+        blockingPid: parseInt(row.blocking_pid, 10),
+        blockingQuery: row.blocking_query as string,
+        blockingDuration: formatDurationSecs(parseInt(row.blocking_secs, 10) || 0),
+        table: row.table_name ?? null,
+        lockType: row.locktype as string,
+      });
+    }
+  }
 
   const longRunningQueries = longResult.rows.map((row: any) => ({
     pid: parseInt(row.pid, 10),
