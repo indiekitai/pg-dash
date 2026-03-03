@@ -37,6 +37,7 @@ export class Collector extends EventEmitter {
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private prev: CumulativeState | null = null;
   private lastSnapshot: Record<string, number> = {};
+  private collectCount = 0;
 
   constructor(
     private pool: Pool,
@@ -163,6 +164,28 @@ export class Collector extends EventEmitter {
     } catch (err) {
       console.error("[collector] Error collecting metrics:", (err as Error).message);
       return snapshot;
+    }
+
+    // Per-table sizes every 10th cycle
+    this.collectCount++;
+    if (this.collectCount % 10 === 0) {
+      try {
+        const client = await this.pool.connect();
+        try {
+          const tableRes = await client.query(`
+            SELECT schemaname, relname,
+                   pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(relname)) as total_size
+            FROM pg_stat_user_tables
+            ORDER BY pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(relname)) DESC
+            LIMIT 20
+          `);
+          for (const row of tableRes.rows) {
+            this.store.insert(`table_size:${row.schemaname}.${row.relname}`, parseInt(row.total_size), now);
+          }
+        } finally { client.release(); }
+      } catch (err) {
+        console.error("[collector] Error collecting table sizes:", (err as Error).message);
+      }
     }
 
     // Store to SQLite

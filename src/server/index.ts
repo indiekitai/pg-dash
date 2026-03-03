@@ -23,6 +23,7 @@ import { registerExplainRoutes } from "./routes/explain.js";
 import { registerDiskRoutes } from "./routes/disk.js";
 import { QueryStatsStore } from "./query-stats.js";
 import { registerQueryStatsRoutes } from "./routes/query-stats.js";
+import { registerExportRoutes } from "./routes/export.js";
 import { DiskPredictor } from "./disk-prediction.js";
 import Database from "better-sqlite3";
 import { WebSocketServer, WebSocket } from "ws";
@@ -170,12 +171,13 @@ export async function startServer(opts: ServerOptions) {
   registerOverviewRoutes(app, pool);
   registerMetricsRoutes(app, store, collector);
   registerActivityRoutes(app, pool);
-  registerAdvisorRoutes(app, pool, longQueryThreshold);
+  registerAdvisorRoutes(app, pool, longQueryThreshold, store);
   registerSchemaRoutes(app, pool, schemaTracker);
   registerAlertsRoutes(app, alertManager);
   registerExplainRoutes(app, pool);
   registerDiskRoutes(app, pool, store);
   registerQueryStatsRoutes(app, queryStatsStore);
+  registerExportRoutes(app, pool, longQueryThreshold);
 
   // Serve frontend
   const uiPath = path.resolve(__dirname, "ui");
@@ -330,6 +332,7 @@ export async function startServer(opts: ServerOptions) {
           try {
             const report = await getAdvisorReport(pool, longQueryThreshold);
             alertMetrics.health_score = report.score;
+            store.insert("health_score", report.score);
           } catch (err) { console.error("[alerts] Error checking health score:", (err as Error).message); }
 
           // db_growth_pct_24h

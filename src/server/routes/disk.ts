@@ -73,6 +73,19 @@ export function registerDiskRoutes(app: Hono, pool: Pool, store: TimeseriesStore
     }
   });
 
+  app.get("/api/disk/table-history/:table", (c) => {
+    try {
+      const table = c.req.param("table");
+      const range = c.req.query("range") || "24h";
+      const rangeMs = RANGE_MAP[range] || RANGE_MAP["24h"];
+      const now = Date.now();
+      const data = store.query(`table_size:${table}`, now - rangeMs, now);
+      return c.json(data);
+    } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
   app.get("/api/disk/history", (c) => {
     try {
       const range = c.req.query("range") || "24h";

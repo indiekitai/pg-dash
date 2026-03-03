@@ -1,9 +1,12 @@
 import { useState } from "react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import type { AdvisorResult } from "../types";
 import { gradeColors, severityBadge, categoryColors, effortBadge } from "../types";
 import { useFetch } from "../hooks/useApi";
 import { GradeCircle } from "../components/GradeCircle";
 import { Toast } from "../components/Toast";
+
+type RangeKey = "24h" | "7d" | "30d";
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -17,6 +20,8 @@ function CopyButton({ text }: { text: string }) {
 
 export function HealthPage() {
   const { data: advisor, reload } = useFetch<AdvisorResult>("/api/advisor", 120000);
+  const [historyRange, setHistoryRange] = useState<RangeKey>("24h");
+  const { data: scoreHistory } = useFetch<{ timestamp: number; value: number }[]>(`/api/advisor/history?range=${historyRange}`, 60000);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -107,6 +112,33 @@ export function HealthPage() {
         </div>
       </div>
 
+      {/* Health Score Trend */}
+      <div className="bg-gray-900 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">Health Score Trend</h2>
+          <div className="flex items-center gap-2">
+            {(["24h", "7d", "30d"] as RangeKey[]).map((k) => (
+              <button key={k} className={`text-xs px-2 py-1 rounded cursor-pointer ${historyRange === k ? "bg-blue-800 text-blue-200" : "text-gray-400 hover:text-gray-300"}`} onClick={() => setHistoryRange(k)}>{k}</button>
+            ))}
+          </div>
+        </div>
+        {!scoreHistory || scoreHistory.length === 0 ? (
+          <div className="text-gray-500 text-sm text-center py-8">No health score history yet. Scores are recorded periodically.</div>
+        ) : (
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={scoreHistory}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="timestamp" tickFormatter={(ts) => { const d = new Date(ts); return historyRange === "24h" ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString([], { month: "short", day: "numeric" }); }} stroke="#9CA3AF" fontSize={11} />
+                <YAxis domain={[0, 100]} stroke="#9CA3AF" fontSize={11} />
+                <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "1px solid #374151", borderRadius: 8 }} labelFormatter={(ts) => new Date(ts).toLocaleString()} formatter={(value: number) => [`${value}/100`, "Score"]} />
+                <Line type="monotone" dataKey="value" stroke="#34D399" dot={false} strokeWidth={2} name="Score" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
       {/* Filters + Re-scan */}
       <div className="flex flex-wrap items-center gap-3">
         <select className="bg-gray-800 text-sm rounded px-3 py-1.5 border border-gray-700" value={filterSeverity} onChange={(e) => setFilterSeverity(e.target.value)}>
@@ -156,6 +188,21 @@ export function HealthPage() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Batch Fixes */}
+      {advisor.batchFixes && advisor.batchFixes.length > 0 && (
+        <div className="space-y-2">
+          {advisor.batchFixes.map((bf) => (
+            <div key={bf.type} className="bg-gray-900 rounded-xl p-4 flex items-center justify-between border border-gray-700">
+              <div>
+                <span className="text-lg mr-2">🔧</span>
+                <span className="font-medium">{bf.title}</span>
+              </div>
+              <CopyButton text={bf.sql} />
+            </div>
+          ))}
         </div>
       )}
 

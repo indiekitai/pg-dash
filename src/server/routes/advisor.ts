@@ -1,8 +1,15 @@
 import type { Hono } from "hono";
 import type { Pool } from "pg";
+import type { TimeseriesStore } from "../timeseries.js";
 import { getAdvisorReport, isSafeFix, getIgnoredIssues, ignoreIssue, unignoreIssue } from "../advisor.js";
 
-export function registerAdvisorRoutes(app: Hono, pool: Pool, longQueryThreshold: number) {
+const RANGE_MAP: Record<string, number> = {
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "30d": 30 * 24 * 60 * 60 * 1000,
+};
+
+export function registerAdvisorRoutes(app: Hono, pool: Pool, longQueryThreshold: number, store?: TimeseriesStore) {
   app.get("/api/advisor", async (c) => {
     try { return c.json(await getAdvisorReport(pool, longQueryThreshold)); }
     catch (err: any) { return c.json({ error: err.message }, 500); }
@@ -28,6 +35,17 @@ export function registerAdvisorRoutes(app: Hono, pool: Pool, longQueryThreshold:
       const issueId = c.req.param("issueId");
       unignoreIssue(issueId);
       return c.json({ ok: true });
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/advisor/history", (c) => {
+    if (!store) return c.json([]);
+    try {
+      const range = c.req.query("range") || "24h";
+      const rangeMs = RANGE_MAP[range] || RANGE_MAP["24h"];
+      const now = Date.now();
+      const data = store.query("health_score", now - rangeMs, now);
+      return c.json(data);
     } catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 

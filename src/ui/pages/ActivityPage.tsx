@@ -28,13 +28,14 @@ export function ActivityPage({ activity }: { activity: ActivityRow[] }) {
         {nonIdle.length === 0 ? <p className="text-gray-500 text-sm">No active queries</p> : (
           <table className="w-full text-sm">
             <thead><tr className="text-gray-400 text-left border-b border-gray-800">
-              <th className="py-2 px-2">PID</th><th className="py-2 px-2">Duration</th><th className="py-2 px-2">State</th><th className="py-2 px-2">Wait</th><th className="py-2 px-2">Query</th><th className="py-2 px-2">Client</th><th className="py-2 px-2"></th>
+              <th className="py-2 px-2">PID</th><th className="py-2 px-2">App</th><th className="py-2 px-2">Duration</th><th className="py-2 px-2">State</th><th className="py-2 px-2">Wait</th><th className="py-2 px-2">Query</th><th className="py-2 px-2">Client</th><th className="py-2 px-2"></th>
             </tr></thead>
             <tbody>
               {nonIdle.map((a) => (
                 <React.Fragment key={a.pid}>
                   <tr className="border-b border-gray-800/50 hover:bg-gray-800/30 cursor-pointer" onClick={() => setExpandedPid(expandedPid === a.pid ? null : a.pid)}>
                     <td className="py-1.5 px-2 font-mono">{a.pid}</td>
+                    <td className="py-1.5 px-2 text-xs">{a.application_name || "—"}</td>
                     <td className="py-1.5 px-2">{a.duration || "—"}</td>
                     <td className={`py-1.5 px-2 ${stateColor[a.state] || "text-gray-400"}`}>{a.state}</td>
                     <td className="py-1.5 px-2 text-xs">{a.wait_event || "—"}</td>
@@ -52,7 +53,7 @@ export function ActivityPage({ activity }: { activity: ActivityRow[] }) {
                     </td>
                   </tr>
                   {expandedPid === a.pid && (
-                    <tr className="bg-gray-800/50"><td colSpan={7} className="px-4 py-3"><pre className="text-xs font-mono whitespace-pre-wrap text-gray-300">{a.query}</pre></td></tr>
+                    <tr className="bg-gray-800/50"><td colSpan={8} className="px-4 py-3"><pre className="text-xs font-mono whitespace-pre-wrap text-gray-300">{a.query}</pre></td></tr>
                   )}
                 </React.Fragment>
               ))}

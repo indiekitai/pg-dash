@@ -11,6 +11,13 @@ export interface AdvisorIssue {
   effort: "quick" | "moderate" | "involved";
 }
 
+export interface BatchFix {
+  type: string;
+  title: string;
+  count: number;
+  sql: string;
+}
+
 export interface AdvisorResult {
   score: number;
   grade: string;
@@ -18,6 +25,7 @@ export interface AdvisorResult {
   breakdown: Record<string, { score: number; grade: string; count: number }>;
   skipped: string[];
   ignoredCount: number;
+  batchFixes: BatchFix[];
 }
 
 const SEVERITY_WEIGHT = { critical: 15, warning: 5, info: 1 } as const;
@@ -687,6 +695,31 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
     const activeIssues = issues.filter(i => !ignoredSet.has(i.id));
     const ignoredCount = issues.length - activeIssues.length;
 
+    // Generate batch fixes for groups of same-type issues
+    const batchFixes: BatchFix[] = [];
+    const groups = new Map<string, AdvisorIssue[]>();
+    for (const issue of activeIssues) {
+      // Group by id prefix (everything before the last dash-separated segment with variable data)
+      const prefix = issue.id.replace(/-[^-]+$/, "");
+      if (!groups.has(prefix)) groups.set(prefix, []);
+      groups.get(prefix)!.push(issue);
+    }
+    const BATCH_TITLES: Record<string, string> = {
+      "schema-fk-no-idx": "Create all missing FK indexes",
+      "schema-unused-idx": "Drop all unused indexes",
+      "schema-no-pk": "Fix all tables missing primary keys",
+      "maint-vacuum": "VACUUM all overdue tables",
+      "maint-analyze": "ANALYZE all tables missing statistics",
+      "perf-bloated-idx": "REINDEX all bloated indexes",
+      "perf-bloat": "VACUUM FULL all bloated tables",
+    };
+    for (const [prefix, group] of groups) {
+      if (group.length <= 1) continue;
+      const title = BATCH_TITLES[prefix] || `Fix all ${group.length} ${prefix} issues`;
+      const sql = group.map(i => i.fix.split("\n").filter(l => !l.trim().startsWith("--")).join("\n").trim()).filter(Boolean).join(";\n") + ";";
+      batchFixes.push({ type: prefix, title: `${title} (${group.length})`, count: group.length, sql });
+    }
+
     const score = computeAdvisorScore(activeIssues);
     return {
       score,
@@ -695,6 +728,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
       breakdown: computeBreakdown(activeIssues),
       skipped,
       ignoredCount,
+      batchFixes,
     };
   } finally {
     client.release();

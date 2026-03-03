@@ -84,7 +84,7 @@ Options:
   --query-stats-interval <min> Query stats snapshot interval in minutes (default: 5)
   --long-query-threshold <min> Long query threshold in minutes (default: 5)
   --threshold <score>    Health score threshold for check command (default: 70)
-  -f, --format <fmt>     Output format: text|json (default: text)
+  -f, --format <fmt>     Output format: text|json|md (default: text)
   -v, --version          Show version
   -h, --help             Show this help
 
@@ -129,6 +129,26 @@ if (subcommand === "check") {
     const report = await getAdvisorReport(pool, lqt);
     if (format === "json") {
       console.log(JSON.stringify(report, null, 2));
+    } else if (format === "md") {
+      console.log(`# pg-dash Health Report\n`);
+      console.log(`Generated: ${new Date().toISOString()}\n`);
+      console.log(`## Health Score: ${report.score}/100 (Grade: ${report.grade})\n`);
+      console.log(`| Category | Grade | Score | Issues |`);
+      console.log(`|----------|-------|-------|--------|`);
+      for (const [cat, b] of Object.entries(report.breakdown)) {
+        console.log(`| ${cat} | ${b.grade} | ${b.score}/100 | ${b.count} |`);
+      }
+      if (report.issues.length > 0) {
+        console.log(`\n### Issues (${report.issues.length})\n`);
+        for (const issue of report.issues) {
+          const icon = issue.severity === "critical" ? "🔴" : issue.severity === "warning" ? "🟡" : "🔵";
+          console.log(`#### ${icon} [${issue.severity}] ${issue.title}\n`);
+          console.log(`${issue.description}\n`);
+          console.log(`**Fix**:\n\`\`\`sql\n${issue.fix}\n\`\`\`\n`);
+        }
+      } else {
+        console.log(`\n✅ No issues found!`);
+      }
     } else {
       console.log(`\n  Health Score: ${report.score}/100 (Grade: ${report.grade})\n`);
       for (const [cat, b] of Object.entries(report.breakdown)) {

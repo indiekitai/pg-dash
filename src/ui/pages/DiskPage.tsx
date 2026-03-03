@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useFetch } from "../hooks/useApi";
 import { formatBytes } from "../utils";
 
@@ -27,10 +27,17 @@ type RangeKey = "24h" | "7d" | "30d";
 
 export function DiskPage() {
   const [range, setRange] = useState<RangeKey>("24h");
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [tableRange, setTableRange] = useState<RangeKey>("24h");
   const { data: usage, error: usageErr } = useFetch<DiskUsage>("/api/disk/usage", 30000);
   const { data: predictionWrap, error: predErr } = useFetch<{ prediction: DiskPrediction | null }>("/api/disk/prediction?days=30", 60000);
   const { data: history, error: histErr } = useFetch<HistoryPoint[]>(`/api/disk/history?range=${range}`, 30000);
 
+  const { data: tableHistory } = useFetch<HistoryPoint[]>(
+    selectedTable ? `/api/disk/table-history/${encodeURIComponent(selectedTable)}?range=${tableRange}` : "",
+    30000,
+    !selectedTable
+  );
   const prediction = predictionWrap?.prediction ?? null;
 
   const fmtTs = (ts: number) => {
@@ -177,20 +184,53 @@ export function DiskPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {usage.tables.map((t) => (
-                    <tr key={`${t.schema}.${t.name}`} className="border-b border-gray-800/50">
-                      <td className="py-1.5 px-2 font-mono text-xs">{t.schema}.{t.name}</td>
-                      <td className="py-1.5 px-2 text-right font-mono">{formatBytes(t.totalSize)}</td>
-                      <td className="py-1.5 px-2 text-right font-mono">{formatBytes(t.tableSize)}</td>
-                      <td className="py-1.5 px-2 text-right font-mono">{formatBytes(t.indexSize)}</td>
-                    </tr>
-                  ))}
+                  {usage.tables.map((t) => {
+                    const fullName = `${t.schema}.${t.name}`;
+                    return (
+                      <tr key={fullName} className={`border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/30 ${selectedTable === fullName ? "bg-gray-800/50" : ""}`} onClick={() => { setSelectedTable(selectedTable === fullName ? null : fullName); setTableRange("24h"); }}>
+                        <td className="py-1.5 px-2 font-mono text-xs">{fullName}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{formatBytes(t.totalSize)}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{formatBytes(t.tableSize)}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{formatBytes(t.indexSize)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </>
         )}
       </div>
+
+      {/* Table size history */}
+      {selectedTable && (
+        <div className="bg-gray-900 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">Size History: <span className="font-mono text-blue-400">{selectedTable}</span></h2>
+            <div className="flex items-center gap-2">
+              {(["24h", "7d", "30d"] as RangeKey[]).map((k) => (
+                <button key={k} className={`text-xs px-2 py-1 rounded cursor-pointer ${tableRange === k ? "bg-blue-800 text-blue-200" : "text-gray-400 hover:text-gray-300"}`} onClick={() => setTableRange(k)}>{k}</button>
+              ))}
+              <button className="text-xs px-2 py-1 text-gray-400 hover:text-gray-300 cursor-pointer" onClick={() => setSelectedTable(null)}>✕</button>
+            </div>
+          </div>
+          {!tableHistory || tableHistory.length === 0 ? (
+            <div className="text-gray-500 text-sm text-center py-8">No history data yet. Table sizes are recorded every ~5 minutes.</div>
+          ) : (
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={tableHistory}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis dataKey="timestamp" tickFormatter={fmtTs} stroke="#9CA3AF" fontSize={11} />
+                  <YAxis stroke="#9CA3AF" fontSize={11} tickFormatter={(v) => formatBytes(v)} />
+                  <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "1px solid #374151", borderRadius: 8 }} labelFormatter={fmtTs} formatter={(value: number) => [formatBytes(value), "Size"]} />
+                  <Line type="monotone" dataKey="value" stroke="#A78BFA" dot={false} name="Size" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tablespaces */}
       <div className="bg-gray-900 rounded-xl p-4">

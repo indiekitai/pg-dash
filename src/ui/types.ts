@@ -49,6 +49,13 @@ export interface AdvisorIssue {
   effort: "quick" | "moderate" | "involved";
 }
 
+export interface BatchFix {
+  type: string;
+  title: string;
+  count: number;
+  sql: string;
+}
+
 export interface AdvisorResult {
   score: number;
   grade: string;
@@ -56,6 +63,7 @@ export interface AdvisorResult {
   breakdown: Record<string, { score: number; grade: string; count: number }>;
   skipped?: string[];
   ignoredCount?: number;
+  batchFixes?: BatchFix[];
 }
 
 export interface SchemaTable {
