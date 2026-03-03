@@ -63,10 +63,11 @@ if (values.help) {
 pg-dash — Lightweight PostgreSQL Monitoring Dashboard
 
 Usage:
-  pg-dash <connection-string>
-  pg-dash check <connection-string>     Run health check and exit
-  pg-dash schema-diff <connection-string> Show latest schema changes
-  pg-dash diff-env --source <url> --target <url>  Compare two environments
+  pg-dash <connection-string>                           Start dashboard
+  pg-dash check <connection-string>                     Run health check and exit
+  pg-dash check-migration <file> [connection]           Analyze migration SQL for risks
+  pg-dash diff-env --source <url> --target <url>        Compare two environments
+  pg-dash schema-diff <connection-string>               Show latest schema changes
   pg-dash --host localhost --user postgres --db mydb
 
 Options:
@@ -369,6 +370,7 @@ if (subcommand === "check") {
 } else if (subcommand === "schema-diff") {
   // Schema diff mode
   const connectionString = resolveConnectionString(1);
+  const format = values.format || "text";
   const dataDir = values["data-dir"] || path.join((await import("node:os")).homedir(), ".pg-dash");
   const schemaDbPath = path.join(dataDir, "schema.db");
 
@@ -382,16 +384,27 @@ if (subcommand === "check") {
   const changes = db.prepare("SELECT * FROM schema_changes ORDER BY timestamp DESC LIMIT 50").all() as any[];
   db.close();
 
-  if (changes.length === 0) {
-    console.log("No schema changes detected.");
+  if (format === "json") {
+    console.log(JSON.stringify(changes.map((c) => ({
+      type: c.change_type,
+      objectType: c.object_type,
+      objectName: c.object_name,
+      tableName: c.table_name,
+      detail: c.detail,
+      timestamp: c.timestamp,
+    })), null, 2));
   } else {
-    console.log(`\n  Schema Changes (${changes.length}):\n`);
-    for (const c of changes) {
-      const icon = c.change_type === "added" ? "＋" : c.change_type === "removed" ? "−" : "~";
-      const color = c.change_type === "added" ? "\x1b[32m" : c.change_type === "removed" ? "\x1b[31m" : "\x1b[33m";
-      console.log(`  ${color}${icon}\x1b[0m ${c.detail}${c.table_name ? ` (${c.table_name})` : ""} — ${new Date(c.timestamp).toLocaleString()}`);
+    if (changes.length === 0) {
+      console.log("No schema changes detected.");
+    } else {
+      console.log(`\n  Schema Changes (${changes.length}):\n`);
+      for (const c of changes) {
+        const icon = c.change_type === "added" ? "＋" : c.change_type === "removed" ? "−" : "~";
+        const color = c.change_type === "added" ? "\x1b[32m" : c.change_type === "removed" ? "\x1b[31m" : "\x1b[33m";
+        console.log(`  ${color}${icon}\x1b[0m ${c.detail}${c.table_name ? ` (${c.table_name})` : ""} — ${new Date(c.timestamp).toLocaleString()}`);
+      }
+      console.log();
     }
-    console.log();
   }
   process.exit(0);
 } else if (subcommand === "diff-env") {
