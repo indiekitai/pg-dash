@@ -14,6 +14,11 @@ import { saveSnapshot, loadSnapshot, diffSnapshots } from "./server/snapshot.js"
 import { diffEnvironments } from "./server/env-differ.js";
 import { analyzeExplainPlan, detectQueryRegressions } from "./server/query-analyzer.js";
 import { analyzeMigration } from "./server/migration-checker.js";
+import { getUnusedIndexes } from "./server/unused-indexes.js";
+import { getBloatReport } from "./server/bloat.js";
+import { getAutovacuumReport } from "./server/autovacuum.js";
+import { getLockReport } from "./server/locks.js";
+import { getConfigReport } from "./server/config-checker.js";
 import Database from "better-sqlite3";
 import path from "node:path";
 import os from "node:os";
@@ -372,6 +377,51 @@ server.tool(
     }
   }
 );
+
+server.tool("pg_dash_unused_indexes", "Find unused indexes that waste space and slow down writes", {}, async () => {
+  try {
+    const report = await getUnusedIndexes(pool);
+    return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }] };
+  } catch (err: any) {
+    return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+  }
+});
+
+server.tool("pg_dash_bloat", "Detect table bloat (dead tuples) that slow down queries", {}, async () => {
+  try {
+    const report = await getBloatReport(pool);
+    return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }] };
+  } catch (err: any) {
+    return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+  }
+});
+
+server.tool("pg_dash_autovacuum", "Check autovacuum health — which tables are stale or never vacuumed", {}, async () => {
+  try {
+    const report = await getAutovacuumReport(pool);
+    return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }] };
+  } catch (err: any) {
+    return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+  }
+});
+
+server.tool("pg_dash_locks", "Show active lock waits and long-running queries blocking the database", {}, async () => {
+  try {
+    const report = await getLockReport(pool);
+    return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }] };
+  } catch (err: any) {
+    return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+  }
+});
+
+server.tool("pg_dash_config_check", "Audit PostgreSQL configuration settings and get tuning recommendations", {}, async () => {
+  try {
+    const report = await getConfigReport(pool);
+    return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }] };
+  } catch (err: any) {
+    return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+  }
+});
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
