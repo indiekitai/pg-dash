@@ -2,7 +2,7 @@
 
 # pg-dash
 
-**AI 原生的 PostgreSQL 健康检查工具。** 一条命令审计数据库，18 个 MCP 工具让 AI 帮你优化，CI 集成自动检查。
+**AI 原生的 PostgreSQL 健康检查工具。** 一条命令审计数据库，23 个 MCP 工具让 AI 帮你优化，CI 集成自动检查。
 
 不是又一个监控面板 —— pg-dash 是为 **AI 编程工作流** 设计的：
 
@@ -47,7 +47,7 @@ Dashboard 需要时可以用。但真正的核心能力在 CLI、MCP 和 CI。
 | pganalyze | $149+/月 | SaaS 注册 | ❌ | ❌ |
 | Grafana+Prometheus | 免费 | 配置 3 个服务 | ❌ | ❌ |
 | pgAdmin | 免费 | 界面复杂 | ❌ | ❌ |
-| **pg-dash** | **免费** | **一条命令** | **18 个 MCP 工具** | **`--ci --diff`** |
+| **pg-dash** | **免费** | **一条命令** | **23 个 MCP 工具** | **`--ci --diff`** |
 
 ## 功能
 
@@ -118,7 +118,7 @@ Dashboard 需要时可以用。但真正的核心能力在 CLI、MCP 和 CI。
 - `pg_dash_compare_env` MCP 工具：直接问 AI "本地和预发有什么差异？"
 
 ### 🤖 MCP Server
-- 18 个工具，支持 AI Agent 集成
+- 23 个工具，支持 AI Agent 集成
 - `pg-dash-mcp postgres://...` —— 可配合 Claude、Cursor 等使用
 
 ### 🖥️ CLI
@@ -202,7 +202,7 @@ pg-dash-mcp postgres://user:pass@host/db
 PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 ```
 
-### 可用工具（18 个）
+### 可用工具（23 个）
 
 | 工具 | 描述 |
 |------|------|
@@ -224,6 +224,11 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 | `pg_dash_analyze_query` | 深度 EXPLAIN 分析，自动生成索引建议 |
 | `pg_dash_query_regressions` | 检测比历史基线慢超过 50% 的查询 |
 | `pg_dash_compare_env` | 对比两个数据库环境的 Schema 和健康状态 |
+| `pg_dash_unused_indexes` | 发现从未被使用的索引（浪费空间、拖慢写入） |
+| `pg_dash_bloat` | 检测表膨胀（dead tuples 过多） |
+| `pg_dash_autovacuum` | Autovacuum 健康状态——哪些表长期未 vacuum |
+| `pg_dash_locks` | 显示活跃锁等待链和长时间阻塞的查询 |
+| `pg_dash_config_check` | 审计 PostgreSQL 配置，给出调优建议 |
 
 ## MCP 配置
 

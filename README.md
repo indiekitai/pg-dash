@@ -2,7 +2,7 @@
 
 # pg-dash
 
-**The AI-native PostgreSQL health checker.** One command to audit your database, 18 MCP tools for AI-assisted optimization, CI integration for automated checks.
+**The AI-native PostgreSQL health checker.** One command to audit your database, 23 MCP tools for AI-assisted optimization, CI integration for automated checks.
 
 Not another monitoring dashboard — pg-dash is built to fit into your **AI coding workflow**:
 
@@ -47,7 +47,7 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 | pganalyze | $149+/mo | SaaS signup | ❌ | ❌ |
 | Grafana+Prometheus | Free | 3 services | ❌ | ❌ |
 | pgAdmin | Free | Complex UI | ❌ | ❌ |
-| **pg-dash** | **Free** | **One command** | **18 MCP tools** | **`--ci --diff`** |
+| **pg-dash** | **Free** | **One command** | **23 MCP tools** | **`--ci --diff`** |
 
 ## Features
 
@@ -118,7 +118,7 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 - `pg_dash_compare_env` MCP tool: ask your AI "what's different between local and staging?"
 
 ### 🤖 MCP Server
-- 18 tools for AI agent integration
+- 23 tools for AI agent integration
 - `pg-dash-mcp postgres://...` — works with Claude, Cursor, etc.
 
 ### 🖥️ CLI
@@ -202,7 +202,7 @@ pg-dash-mcp postgres://user:pass@host/db
 PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 ```
 
-### Available Tools (18)
+### Available Tools (23)
 
 | Tool | Description |
 |------|-------------|
@@ -224,6 +224,11 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 | `pg_dash_analyze_query` | Deep EXPLAIN analysis with automatic index suggestions |
 | `pg_dash_query_regressions` | Detect queries that degraded >50% vs historical baseline |
 | `pg_dash_compare_env` | Compare schema and health between two database environments |
+| `pg_dash_unused_indexes` | Find unused indexes that waste space and slow down writes |
+| `pg_dash_bloat` | Detect table bloat (dead tuples) that slow down queries |
+| `pg_dash_autovacuum` | Check autovacuum health — which tables are stale or never vacuumed |
+| `pg_dash_locks` | Show active lock waits and long-running blocking queries |
+| `pg_dash_config_check` | Audit PostgreSQL configuration and get tuning recommendations |
 
 ## MCP Setup
 
