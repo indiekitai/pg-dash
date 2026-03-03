@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import type { Pool } from "pg";
+import { analyzeExplainPlan } from "../query-analyzer.js";
 
 const DDL_PATTERN = /\b(CREATE|DROP|ALTER|TRUNCATE|GRANT|REVOKE)\b/i;
 
@@ -20,7 +21,18 @@ export function registerExplainRoutes(app: Hono, pool: Pool) {
           const r = await client.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${query}`);
           await client.query("ROLLBACK");
           await client.query("RESET statement_timeout");
-          return c.json({ plan: r.rows[0]["QUERY PLAN"] });
+
+          const plan = r.rows[0]["QUERY PLAN"];
+
+          // Deep analysis (best-effort; never throws)
+          let analysis = null;
+          try {
+            analysis = await analyzeExplainPlan(plan, pool);
+          } catch {
+            // analysis unavailable — return plan only
+          }
+
+          return c.json({ plan, analysis });
         } catch (err: any) {
           await client.query("ROLLBACK").catch(() => {});
           await client.query("RESET statement_timeout").catch(() => {});

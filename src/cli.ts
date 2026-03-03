@@ -254,6 +254,111 @@ if (subcommand === "check") {
     await pool.end();
     process.exit(1);
   }
+} else if (subcommand === "check-migration") {
+  // Migration safety check mode
+  // Usage: pg-dash check-migration <file> [connection] [--ci] [-f json|text|md]
+  const filePath = positionals[1];
+  if (!filePath) {
+    console.error("Error: provide a migration SQL file path.\n\nUsage: pg-dash check-migration <file> [connection]");
+    process.exit(1);
+  }
+
+  if (!fs.existsSync(filePath)) {
+    console.error(`Error: File not found: ${filePath}`);
+    process.exit(1);
+  }
+
+  const sql = fs.readFileSync(filePath, "utf-8");
+
+  // Optional connection string (third positional arg)
+  const migrationConn = positionals[2];
+  const format = values.format || "text";
+  const ci = values.ci || false;
+
+  const { analyzeMigration } = await import("./server/migration-checker.js");
+
+  let pool: import("pg").Pool | undefined;
+  if (migrationConn) {
+    const { Pool } = await import("pg");
+    pool = new Pool({ connectionString: migrationConn, connectionTimeoutMillis: 10000 });
+  }
+
+  try {
+    const result = await analyzeMigration(sql, pool);
+    if (pool) await pool.end();
+
+    const sep = "─".repeat(48);
+
+    if (format === "json") {
+      console.log(JSON.stringify(result, null, 2));
+    } else if (format === "md") {
+      console.log("## 🔍 Migration Safety Check\n");
+      console.log("| Severity | Code | Message |");
+      console.log("|----------|------|---------|");
+      for (const issue of result.issues) {
+        const sev =
+          issue.severity === "error"
+            ? "🔴 ERROR"
+            : issue.severity === "warning"
+            ? "⚠️ WARNING"
+            : "ℹ️ INFO";
+        console.log(`| ${sev} | ${issue.code} | ${issue.message} |`);
+      }
+      const { errors, warnings, infos } = result.summary;
+      const safeLabel = result.safe ? "✅ SAFE" : "❌ UNSAFE";
+      console.log(`\n**Result: ${safeLabel} — ${errors} error${errors !== 1 ? "s" : ""}, ${warnings} warning${warnings !== 1 ? "s" : ""}, ${infos} info${infos !== 1 ? "s" : ""}**`);
+    } else {
+      // Text format
+      console.log(`\nMigration check: ${filePath}`);
+      console.log(sep);
+      if (result.issues.length === 0) {
+        console.log("\n  ✅ No issues found!\n");
+      } else {
+        for (const issue of result.issues) {
+          const icon =
+            issue.severity === "error" ? "✗" : issue.severity === "warning" ? "⚠" : "✓";
+          const indent = "  ";
+          const parts = [`${indent}${icon}  ${issue.message}`];
+          if (issue.suggestion) parts.push(`${indent}   Suggestion: ${issue.suggestion}`);
+          if (issue.estimatedRows !== undefined) {
+            parts.push(
+              `${indent}   Est. rows: ${issue.estimatedRows.toLocaleString()}` +
+                (issue.estimatedLockSeconds !== undefined
+                  ? `, lock ~${issue.estimatedLockSeconds}s`
+                  : "")
+            );
+          }
+          if (issue.lineNumber !== undefined) parts.push(`${indent}   Line ${issue.lineNumber}`);
+          console.log(parts.join("\n") + "\n");
+        }
+      }
+      console.log(sep);
+      const { errors, warnings, infos } = result.summary;
+      const safeLabel = result.safe ? "SAFE" : "UNSAFE";
+      console.log(
+        `Result: ${safeLabel} — ${errors} error${errors !== 1 ? "s" : ""}, ${warnings} warning${warnings !== 1 ? "s" : ""}, ${infos} info${infos !== 1 ? "s" : ""}\n`
+      );
+      if (!migrationConn) {
+        console.log("Run with a connection string for more accurate row count estimates.\n");
+      }
+    }
+
+    // --ci annotations
+    if (ci) {
+      for (const issue of result.issues) {
+        const level = issue.severity === "error" ? "error" : issue.severity === "warning" ? "warning" : "notice";
+        const loc = issue.lineNumber ? `,line=${issue.lineNumber}` : "";
+        const file = `file=${filePath}${loc}`;
+        console.log(`::${level} ${file}::${issue.message}`);
+      }
+    }
+
+    process.exit(result.safe ? 0 : 1);
+  } catch (err: any) {
+    if (pool) await pool.end().catch(() => {});
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
+  }
 } else if (subcommand === "schema-diff") {
   // Schema diff mode
   const connectionString = resolveConnectionString(1);

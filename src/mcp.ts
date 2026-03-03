@@ -11,6 +11,8 @@ import { getActivity } from "./server/queries/activity.js";
 import { getAdvisorReport, isSafeFix } from "./server/advisor.js";
 import { getSlowQueries } from "./server/queries/slow-queries.js";
 import { saveSnapshot, loadSnapshot, diffSnapshots } from "./server/snapshot.js";
+import { analyzeExplainPlan, detectQueryRegressions } from "./server/query-analyzer.js";
+import { analyzeMigration } from "./server/migration-checker.js";
 import Database from "better-sqlite3";
 import path from "node:path";
 import os from "node:os";
@@ -40,6 +42,12 @@ try {
 try {
   const alertsPath = path.join(dataDir, "alerts.db");
   if (fs.existsSync(alertsPath)) alertsDb = new Database(alertsPath, { readonly: true });
+} catch (err) { console.error("[mcp] Error:", (err as Error).message); }
+
+let queryStatsDb: Database.Database | null = null;
+try {
+  const queryStatsPath = path.join(dataDir, "query-stats.db");
+  if (fs.existsSync(queryStatsPath)) queryStatsDb = new Database(queryStatsPath, { readonly: true });
 } catch (err) { console.error("[mcp] Error:", (err as Error).message); }
 
 const server = new McpServer({ name: "pg-dash", version: pkg.version });
@@ -266,6 +274,84 @@ server.tool("pg_dash_diff", "Compare current health with last saved snapshot", {
     return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
   }
 });
+
+server.tool(
+  "pg_dash_check_migration",
+  "Analyze migration SQL for safety risks (lock tables, missing tables, destructive ops)",
+  {
+    sql: z.string().describe("Migration SQL content to analyze"),
+  },
+  async ({ sql }) => {
+    try {
+      const result = await analyzeMigration(sql, pool);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "pg_dash_analyze_query",
+  "Deep analysis of a SQL query: runs EXPLAIN ANALYZE, detects missing indexes, and provides specific optimization recommendations",
+  {
+    sql: z.string().describe("SELECT query to analyze"),
+  },
+  async ({ sql }) => {
+    try {
+      if (!/^\s*SELECT\b/i.test(sql)) {
+        return { content: [{ type: "text", text: "Error: Only SELECT queries are allowed" }], isError: true };
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("SET statement_timeout = '30s'");
+        await client.query("BEGIN");
+        try {
+          const r = await client.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`);
+          await client.query("ROLLBACK");
+          await client.query("RESET statement_timeout");
+
+          const plan = r.rows[0]["QUERY PLAN"];
+          const analysis = await analyzeExplainPlan(plan, pool);
+
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({ plan, analysis }, null, 2),
+            }],
+          };
+        } catch (err: any) {
+          await client.query("ROLLBACK").catch(() => {});
+          await client.query("RESET statement_timeout").catch(() => {});
+          return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+        }
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "pg_dash_query_regressions",
+  "Detect queries that have gotten significantly slower (>50% degradation) compared to historical baselines",
+  {
+    windowHours: z.number().optional().describe("Hours to look back (default: 24)"),
+  },
+  async ({ windowHours }) => {
+    try {
+      const regressions = await detectQueryRegressions(pool, queryStatsDb, windowHours ?? 24);
+      if (regressions.length === 0) {
+        return { content: [{ type: "text", text: "No query regressions detected in the specified window." }] };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(regressions, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
