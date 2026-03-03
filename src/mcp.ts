@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // MCP Server for pg-dash — exposes PostgreSQL monitoring tools
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
