@@ -102,7 +102,7 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 
 ### 🛡️ Migration Safety Check
 - Analyze a migration SQL file for risks before running it
-- Detects: `CREATE INDEX` without `CONCURRENTLY` (lock risk), `ADD COLUMN NOT NULL` without `DEFAULT`, `DROP TABLE`, `TRUNCATE`, `DELETE`/`UPDATE` without `WHERE`
+- Detects: `CREATE INDEX` without `CONCURRENTLY` (lock risk), `ADD COLUMN NOT NULL` without `DEFAULT`, `ALTER COLUMN TYPE` (full table rewrite), `DROP COLUMN` (app breakage risk), `ADD CONSTRAINT` without `NOT VALID` (full table scan), `CREATE INDEX CONCURRENTLY` inside a transaction (runtime failure), `DROP TABLE`, `TRUNCATE`, `DELETE`/`UPDATE` without `WHERE`
 - Dynamic checks: connects to DB to verify referenced tables exist, estimates lock time based on actual row counts
 - CI-ready: `--ci` flag emits `::error::` / `::warning::` GitHub Actions annotations
 
@@ -113,7 +113,7 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 
 ### 🔄 Multi-Env Diff
 - Compare schema and health between two PostgreSQL environments (local vs staging, staging vs prod)
-- Detects: missing/extra tables, missing/extra columns, column type mismatches, missing/extra indexes
+- Detects: missing/extra tables, missing/extra columns, column type mismatches, missing/extra indexes, **foreign key and CHECK constraints**, **enum type differences**
 - `--health` flag adds health score comparison and unique issues per environment
 - `pg_dash_compare_env` MCP tool: ask your AI "what's different between local and staging?"
 

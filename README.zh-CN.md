@@ -102,7 +102,7 @@ Dashboard 需要时可以用。但真正的核心能力在 CLI、MCP 和 CI。
 
 ### 🛡️ Migration 安全检查
 - 执行迁移前分析 SQL 文件的风险
-- 检测：`CREATE INDEX`（无 `CONCURRENTLY` 会锁表）、`ADD COLUMN NOT NULL`（无 DEFAULT 会失败）、`DROP TABLE`、`TRUNCATE`、无 WHERE 的 `DELETE`/`UPDATE`
+- 检测：`CREATE INDEX`（无 `CONCURRENTLY` 会锁表）、`ADD COLUMN NOT NULL`（无 DEFAULT 会失败）、`ALTER COLUMN TYPE`（全表重写）、`DROP COLUMN`（可能 break 代码）、`ADD CONSTRAINT` 无 `NOT VALID`（全表扫描验证）、`CREATE INDEX CONCURRENTLY` 在事务内（运行时必然失败）、`DROP TABLE`、`TRUNCATE`、无 WHERE 的 `DELETE`/`UPDATE`
 - 动态检查：连接数据库验证被引用表是否存在，根据实际行数估算锁表时间
 - CI 友好：`--ci` 输出 `::error::` / `::warning::` GitHub Actions 注解
 
@@ -113,7 +113,7 @@ Dashboard 需要时可以用。但真正的核心能力在 CLI、MCP 和 CI。
 
 ### 🔄 多环境对比
 - 对比两个 PostgreSQL 环境的 Schema 和健康状态（本地 vs 预发、预发 vs 生产）
-- 检测：缺失/多余的表、缺失/多余的列、列类型不匹配、缺失/多余的索引
+- 检测：缺失/多余的表、缺失/多余的列、列类型不匹配、缺失/多余的索引、**外键和 CHECK 约束差异**、**枚举类型差异**
 - `--health` 参数额外对比健康分和各环境独有的问题
 - `pg_dash_compare_env` MCP 工具：直接问 AI "本地和预发有什么差异？"
 
