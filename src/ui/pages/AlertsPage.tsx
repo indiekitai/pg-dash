@@ -8,6 +8,8 @@ export function AlertsPage() {
   const { data: rules, reload: reloadRules } = useFetch<AlertRuleRow[]>("/api/alerts/rules", 30000);
   const { data: history, reload: reloadHistory } = useFetch<AlertHistoryRow[]>("/api/alerts/history?limit=50", 15000);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const { data: webhookInfo } = useFetch<{ url: string | null; type: string; configured: boolean }>("/api/alerts/webhook-info", 60000);
+  const [testingWebhook, setTestingWebhook] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingRule, setEditingRule] = useState<AlertRuleRow | null>(null);
   const [form, setForm] = useState({ name: "", metric: "connection_util", operator: "gt", threshold: "80", severity: "warning", cooldown_minutes: "60" });
@@ -60,8 +62,45 @@ export function AlertsPage() {
     setShowForm(true);
   };
 
+  const webhookIcon = webhookInfo?.type === "slack" ? "📱" : webhookInfo?.type === "discord" ? "🎮" : "🔗";
+
+  const sendTestWebhook = async () => {
+    setTestingWebhook(true);
+    try {
+      const res = await fetch("/api/alerts/test-webhook", { method: "POST" });
+      const data = await res.json();
+      setToast({ message: data.ok ? `Test sent to ${data.type} webhook!` : `Failed: ${data.error}`, type: data.ok ? "success" : "error" });
+    } catch (e: any) {
+      setToast({ message: e.message, type: "error" });
+    } finally {
+      setTestingWebhook(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* Webhook Info */}
+      {webhookInfo?.configured && (
+        <div className="bg-gray-900 rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{webhookIcon}</span>
+              <div>
+                <div className="text-sm font-medium">Webhook: <span className="text-gray-400 capitalize">{webhookInfo.type}</span></div>
+                <div className="text-xs text-gray-500 font-mono">{webhookInfo.url}</div>
+              </div>
+            </div>
+            <button
+              className="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 rounded cursor-pointer disabled:opacity-50"
+              onClick={sendTestWebhook}
+              disabled={testingWebhook}
+            >
+              {testingWebhook ? "Sending…" : "Send Test"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Rules */}
       <div className="bg-gray-900 rounded-xl p-4">
         <div className="flex items-center justify-between mb-4">

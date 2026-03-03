@@ -34,6 +34,22 @@ export function registerAlertsRoutes(app: Hono, alertManager: AlertManager) {
     } catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
+  app.get("/api/alerts/webhook-info", (c) => {
+    try {
+      const url = alertManager.getWebhookUrl();
+      const type = alertManager.getWebhookType();
+      const masked = url ? url.replace(/\/[^/]{8,}$/, "/****") : null;
+      return c.json({ url: masked, type: type || "none", configured: !!url });
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.post("/api/alerts/test-webhook", async (c) => {
+    try {
+      const result = await alertManager.sendTestWebhook();
+      return c.json(result, result.ok ? 200 : 400);
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
   app.get("/api/alerts/history", (c) => {
     try {
       const limit = parseInt(c.req.query("limit") || "50");

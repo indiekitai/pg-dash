@@ -1,6 +1,7 @@
 // Alerts system — rules stored in SQLite, threshold checking with cooldown, webhook notifications
 
 import type Database from "better-sqlite3";
+import { formatWebhookPayload, detectWebhookType } from "./notifiers.js";
 
 export interface AlertRule {
   id: number;
@@ -30,6 +31,8 @@ const DEFAULT_RULES: Omit<AlertRule, "id">[] = [
   { name: "Long-running query > 5 min", metric: "long_query_count", operator: "gt", threshold: 0, severity: "warning", enabled: 1, cooldown_minutes: 15 },
   { name: "Idle in transaction > 10 min", metric: "idle_in_tx_count", operator: "gt", threshold: 0, severity: "warning", enabled: 1, cooldown_minutes: 15 },
   { name: "Health score below D", metric: "health_score", operator: "lt", threshold: 50, severity: "warning", enabled: 1, cooldown_minutes: 120 },
+  { name: "Database size growth > 10% in 24h", metric: "db_growth_pct_24h", operator: "gt", threshold: 10, severity: "warning", enabled: 1, cooldown_minutes: 60 },
+  { name: "Predicted disk full within 7 days", metric: "days_until_full", operator: "lt", threshold: 7, severity: "critical", enabled: 1, cooldown_minutes: 360 },
 ];
 
 export class AlertManager {
@@ -162,20 +165,48 @@ export class AlertManager {
     }
   }
 
+  getWebhookUrl(): string | null {
+    return this.webhookUrl;
+  }
+
+  getWebhookType(): string | null {
+    if (!this.webhookUrl) return null;
+    return detectWebhookType(this.webhookUrl);
+  }
+
+  async sendTestWebhook(): Promise<{ ok: boolean; type: string; error?: string }> {
+    if (!this.webhookUrl) return { ok: false, type: "none", error: "No webhook URL configured" };
+    const type = detectWebhookType(this.webhookUrl);
+    const testRule: AlertRule = {
+      id: 0, name: "Test Alert", metric: "test_metric", operator: "gt",
+      threshold: 80, severity: "info", enabled: 1, cooldown_minutes: 60,
+    };
+    const testEntry: AlertHistoryEntry = {
+      id: 0, rule_id: 0, timestamp: Date.now(), value: 85,
+      message: "Test Alert: test_metric = 85 (threshold: gt 80)", notified: 0,
+    };
+    try {
+      const payload = formatWebhookPayload(testEntry, testRule, this.webhookUrl);
+      const res = await fetch(this.webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) return { ok: false, type, error: `HTTP ${res.status}` };
+      return { ok: true, type };
+    } catch (err) {
+      return { ok: false, type, error: (err as Error).message };
+    }
+  }
+
   private async sendWebhook(rule: AlertRule, entry: AlertHistoryEntry) {
     if (!this.webhookUrl) return;
     try {
+      const payload = formatWebhookPayload(entry, rule, this.webhookUrl);
       await fetch(this.webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          severity: rule.severity,
-          rule: rule.name,
-          metric: rule.metric,
-          value: entry.value,
-          message: entry.message,
-          timestamp: entry.timestamp,
-        }),
+        body: JSON.stringify(payload),
       });
       this.db.prepare("UPDATE alert_history SET notified = 1 WHERE id = ?").run(entry.id);
     } catch (err) {

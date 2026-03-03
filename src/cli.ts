@@ -19,6 +19,8 @@ const { values, positionals } = parseArgs({
     auth: { type: "string" },
     token: { type: "string" },
     webhook: { type: "string" },
+    "slack-webhook": { type: "string" },
+    "discord-webhook": { type: "string" },
     "no-open": { type: "boolean", default: false },
     json: { type: "boolean", default: false },
     host: { type: "string" },
@@ -65,6 +67,8 @@ Options:
   --auth <user:pass>     Basic auth credentials (user:password)
   --token <token>        Bearer token for authentication
   --webhook <url>        Webhook URL for alert notifications
+  --slack-webhook <url>  Slack webhook URL (convenience alias)
+  --discord-webhook <url> Discord webhook URL (convenience alias)
   --no-open              Don't auto-open browser (default: opens)
   --json                 Dump health check as JSON and exit
   --host <host>          PostgreSQL host
@@ -183,7 +187,7 @@ if (subcommand === "check") {
   const longQueryThreshold = parseInt(values["long-query-threshold"] || process.env.PG_DASH_LONG_QUERY_THRESHOLD || "5", 10);
   const auth = values.auth || undefined;
   const token = values.token || undefined;
-  const webhook = values.webhook || undefined;
+  const webhook = values["slack-webhook"] || values["discord-webhook"] || values.webhook || undefined;
 
   // Security warning
   if (bind === "0.0.0.0" && !auth && !token) {
