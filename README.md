@@ -199,7 +199,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
   "mcpServers": {
     "pg-dash": {
       "command": "npx",
-      "args": ["@indiekitai/pg-dash-mcp", "postgresql://user:pass@host/db"]
+      "args": ["-y", "-p", "@indiekitai/pg-dash", "pg-dash-mcp", "postgresql://user:pass@host/db"]
     }
   }
 }
@@ -214,7 +214,7 @@ Add to `.cursor/mcp.json` in your project:
   "mcpServers": {
     "pg-dash": {
       "command": "npx",
-      "args": ["@indiekitai/pg-dash-mcp", "postgresql://user:pass@host/db"]
+      "args": ["-y", "-p", "@indiekitai/pg-dash", "pg-dash-mcp", "postgresql://user:pass@host/db"]
     }
   }
 }

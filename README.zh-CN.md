@@ -199,7 +199,7 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
   "mcpServers": {
     "pg-dash": {
       "command": "npx",
-      "args": ["@indiekitai/pg-dash-mcp", "postgresql://user:pass@host/db"]
+      "args": ["-y", "-p", "@indiekitai/pg-dash", "pg-dash-mcp", "postgresql://user:pass@host/db"]
     }
   }
 }
@@ -214,7 +214,7 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
   "mcpServers": {
     "pg-dash": {
       "command": "npx",
-      "args": ["@indiekitai/pg-dash-mcp", "postgresql://user:pass@host/db"]
+      "args": ["-y", "-p", "@indiekitai/pg-dash", "pg-dash-mcp", "postgresql://user:pass@host/db"]
     }
   }
 }
