@@ -2,10 +2,12 @@ import React, { useState } from "react";
 import type { ActivityRow } from "../types";
 import { stateColor } from "../types";
 import { Toast } from "../components/Toast";
+import { ExplainModal } from "../components/ExplainModal";
 
 export function ActivityPage({ activity }: { activity: ActivityRow[] }) {
   const [expandedPid, setExpandedPid] = useState<number | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [explainQuery, setExplainQuery] = useState<string | null>(null);
   const cancelQuery = async (pid: number) => {
     if (!confirm(`Cancel query on PID ${pid}?`)) return;
     try {
@@ -39,9 +41,14 @@ export function ActivityPage({ activity }: { activity: ActivityRow[] }) {
                     <td className="py-1.5 px-2 font-mono text-xs max-w-md truncate">{a.query}</td>
                     <td className="py-1.5 px-2 text-xs">{a.client_addr || "local"}</td>
                     <td className="py-1.5 px-2">
-                      {(a.state === "active" || a.state === "idle in transaction") && (
-                        <button className="text-xs text-red-400 hover:text-red-300 cursor-pointer" onClick={(e) => { e.stopPropagation(); cancelQuery(a.pid); }}>Cancel</button>
-                      )}
+                      <span className="flex gap-2">
+                        {a.query && (
+                          <button className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer" onClick={(e) => { e.stopPropagation(); setExplainQuery(a.query); }}>EXPLAIN</button>
+                        )}
+                        {(a.state === "active" || a.state === "idle in transaction") && (
+                          <button className="text-xs text-red-400 hover:text-red-300 cursor-pointer" onClick={(e) => { e.stopPropagation(); cancelQuery(a.pid); }}>Cancel</button>
+                        )}
+                      </span>
                     </td>
                   </tr>
                   {expandedPid === a.pid && (
@@ -73,6 +80,7 @@ export function ActivityPage({ activity }: { activity: ActivityRow[] }) {
       </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {explainQuery && <ExplainModal query={explainQuery} onClose={() => setExplainQuery(null)} />}
     </div>
   );
 }

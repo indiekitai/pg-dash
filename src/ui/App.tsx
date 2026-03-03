@@ -11,10 +11,11 @@ import { HealthPage } from "./pages/HealthPage";
 import { SchemaPage } from "./pages/SchemaPage";
 import { ActivityPage } from "./pages/ActivityPage";
 import { AlertsPage } from "./pages/AlertsPage";
+import { QueriesPage } from "./pages/QueriesPage";
 
 function getInitialTab(): Tab {
   const hash = window.location.hash.replace("#", "") as Tab;
-  if (["overview", "health", "schema", "activity", "alerts"].includes(hash)) return hash;
+  if (["overview", "health", "schema", "activity", "queries", "alerts"].includes(hash)) return hash;
   return "overview";
 }
 
@@ -50,7 +51,7 @@ export default function App() {
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace("#", "") as Tab;
-      if (["overview", "health", "schema", "activity", "alerts"].includes(hash)) setTab(hash);
+      if (["overview", "health", "schema", "activity", "queries", "alerts"].includes(hash)) setTab(hash);
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -94,6 +95,7 @@ export default function App() {
     { id: "health", label: "Health" },
     { id: "schema", label: "Schema" },
     { id: "activity", label: "Activity" },
+    { id: "queries", label: "Queries" },
     { id: "alerts", label: "🔔 Alerts", badge: alertCount },
   ];
 
@@ -107,6 +109,7 @@ export default function App() {
         {tab === "health" && <HealthPage />}
         {tab === "schema" && <SchemaPage />}
         {tab === "activity" && <ActivityPage activity={liveActivity} />}
+        {tab === "queries" && <QueriesPage />}
         {tab === "alerts" && <AlertsPage />}
 
         {alertToast && <Toast message={`🔔 ${alertToast}`} type="error" onClose={() => setAlertToast(null)} />}

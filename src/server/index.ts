@@ -19,6 +19,7 @@ import { registerActivityRoutes } from "./routes/activity.js";
 import { registerAdvisorRoutes } from "./routes/advisor.js";
 import { registerSchemaRoutes } from "./routes/schema.js";
 import { registerAlertsRoutes } from "./routes/alerts.js";
+import { registerExplainRoutes } from "./routes/explain.js";
 import Database from "better-sqlite3";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "node:http";
@@ -155,6 +156,7 @@ export async function startServer(opts: ServerOptions) {
   registerAdvisorRoutes(app, pool, longQueryThreshold);
   registerSchemaRoutes(app, pool, schemaTracker);
   registerAlertsRoutes(app, alertManager);
+  registerExplainRoutes(app, pool);
 
   // Serve frontend
   const uiPath = path.resolve(__dirname, "ui");
