@@ -1,0 +1,13 @@
+name: Database Health Check
+on:
+  push:
+    paths: ['migrations/**', 'prisma/**', 'drizzle/**']
+  schedule:
+    - cron: '0 8 * * 1'  # Weekly Monday 8am
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} --ci --diff --format md
