@@ -20,6 +20,9 @@ import { registerAdvisorRoutes } from "./routes/advisor.js";
 import { registerSchemaRoutes } from "./routes/schema.js";
 import { registerAlertsRoutes } from "./routes/alerts.js";
 import { registerExplainRoutes } from "./routes/explain.js";
+import { registerDiskRoutes } from "./routes/disk.js";
+import { QueryStatsStore } from "./query-stats.js";
+import { registerQueryStatsRoutes } from "./routes/query-stats.js";
 import Database from "better-sqlite3";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "node:http";
@@ -101,6 +104,12 @@ export async function startServer(opts: ServerOptions) {
   const alertManager = new AlertManager(alertsDb, opts.webhook);
   console.log("  Alert monitoring enabled");
 
+  // Initialize query stats store
+  const queryStatsStore = new QueryStatsStore(dataDir, opts.retentionDays);
+  const querySnapshotIntervalMs = (opts.snapshotInterval || 5) * 60 * 1000;
+  queryStatsStore.startPeriodicSnapshot(pool, querySnapshotIntervalMs);
+  console.log(`  Query stats snapshots every ${querySnapshotIntervalMs / 60000}m`);
+
   const app = new Hono();
 
   // Auth endpoint for cookie-based auth (must be before auth middleware)
@@ -157,6 +166,8 @@ export async function startServer(opts: ServerOptions) {
   registerSchemaRoutes(app, pool, schemaTracker);
   registerAlertsRoutes(app, alertManager);
   registerExplainRoutes(app, pool);
+  registerDiskRoutes(app, pool, store);
+  registerQueryStatsRoutes(app, queryStatsStore);
 
   // Serve frontend
   const uiPath = path.resolve(__dirname, "ui");
@@ -350,6 +361,7 @@ export async function startServer(opts: ServerOptions) {
     console.log("\n  Shutting down gracefully...");
     collector.stop();
     schemaTracker.stop();
+    queryStatsStore.stop();
     wss.close();
     server.close();
     store.close();

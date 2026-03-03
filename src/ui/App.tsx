@@ -12,10 +12,12 @@ import { SchemaPage } from "./pages/SchemaPage";
 import { ActivityPage } from "./pages/ActivityPage";
 import { AlertsPage } from "./pages/AlertsPage";
 import { QueriesPage } from "./pages/QueriesPage";
+import { QueryTrendsPage } from "./pages/QueryTrendsPage";
+import { DiskPage } from "./pages/DiskPage";
 
 function getInitialTab(): Tab {
   const hash = window.location.hash.replace("#", "") as Tab;
-  if (["overview", "health", "schema", "activity", "queries", "alerts"].includes(hash)) return hash;
+  if (["overview", "health", "schema", "activity", "queries", "trends", "alerts", "disk"].includes(hash)) return hash;
   return "overview";
 }
 
@@ -51,7 +53,7 @@ export default function App() {
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace("#", "") as Tab;
-      if (["overview", "health", "schema", "activity", "queries", "alerts"].includes(hash)) setTab(hash);
+      if (["overview", "health", "schema", "activity", "queries", "trends", "alerts", "disk"].includes(hash)) setTab(hash);
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -96,6 +98,8 @@ export default function App() {
     { id: "schema", label: "Schema" },
     { id: "activity", label: "Activity" },
     { id: "queries", label: "Queries" },
+    { id: "trends", label: "Trends" },
+    { id: "disk", label: "💾 Disk" },
     { id: "alerts", label: "🔔 Alerts", badge: alertCount },
   ];
 
@@ -110,6 +114,8 @@ export default function App() {
         {tab === "schema" && <SchemaPage />}
         {tab === "activity" && <ActivityPage activity={liveActivity} />}
         {tab === "queries" && <QueriesPage />}
+        {tab === "trends" && <QueryTrendsPage />}
+        {tab === "disk" && <DiskPage />}
         {tab === "alerts" && <AlertsPage />}
 
         {alertToast && <Toast message={`🔔 ${alertToast}`} type="error" onClose={() => setAlertToast(null)} />}

@@ -135,7 +135,7 @@ export interface AlertHistoryRow {
 export const RANGES = ["5m", "15m", "1h", "6h", "24h", "7d"] as const;
 export type Range = (typeof RANGES)[number];
 
-export type Tab = "overview" | "health" | "schema" | "activity" | "queries" | "alerts";
+export type Tab = "overview" | "health" | "schema" | "activity" | "queries" | "trends" | "alerts" | "disk";
 
 export const gradeColors: Record<string, string> = {
   A: "text-green-400 border-green-400",

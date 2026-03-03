@@ -15,6 +15,10 @@ export const ALL_METRICS = [
   "tuple_updated",
   "tuple_deleted",
   "replication_lag_bytes",
+  "disk_total_bytes",
+  "disk_used_bytes",
+  "disk_free_bytes",
+  "disk_usage_pct",
 ] as const;
 
 export type MetricName = (typeof ALL_METRICS)[number];
@@ -120,6 +124,21 @@ export class Collector {
             }
           }
           this.prev = cur;
+        }
+
+        // Tablespace sizes (stored as individual metrics)
+        try {
+          const tsRes = await client.query(`SELECT spcname, pg_tablespace_size(oid) AS size FROM pg_tablespace`);
+          let totalTablespaceSize = 0;
+          for (const row of tsRes.rows) {
+            totalTablespaceSize += parseInt(row.size);
+          }
+          // Use total tablespace size as a proxy for disk usage
+          if (totalTablespaceSize > 0) {
+            snapshot.disk_used_bytes = totalTablespaceSize;
+          }
+        } catch {
+          // Not all users have tablespace permissions
         }
 
         // Replication lag
