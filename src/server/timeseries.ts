@@ -17,11 +17,17 @@ export class TimeseriesStore {
   private insertStmt: Database.Statement;
   private retentionMs: number;
 
-  constructor(dataDir?: string, retentionDays = DEFAULT_RETENTION_DAYS) {
-    const dir = dataDir || DEFAULT_DIR;
-    fs.mkdirSync(dir, { recursive: true });
-    const dbPath = path.join(dir, "metrics.db");
-    this.db = new Database(dbPath);
+  constructor(db: Database.Database, retentionDays = DEFAULT_RETENTION_DAYS);
+  constructor(dataDir?: string, retentionDays?: number);
+  constructor(dbOrDir?: Database.Database | string, retentionDays = DEFAULT_RETENTION_DAYS) {
+    if (dbOrDir instanceof Database) {
+      this.db = dbOrDir;
+    } else {
+      const dir = dbOrDir || DEFAULT_DIR;
+      fs.mkdirSync(dir, { recursive: true });
+      const dbPath = path.join(dir, "metrics.db");
+      this.db = new Database(dbPath);
+    }
     this.retentionMs = retentionDays * 24 * 60 * 60 * 1000;
 
     this.db.pragma("journal_mode = WAL");

@@ -15,10 +15,7 @@ export const ALL_METRICS = [
   "tuple_updated",
   "tuple_deleted",
   "replication_lag_bytes",
-  "disk_total_bytes",
   "disk_used_bytes",
-  "disk_free_bytes",
-  "disk_usage_pct",
 ] as const;
 
 export type MetricName = (typeof ALL_METRICS)[number];

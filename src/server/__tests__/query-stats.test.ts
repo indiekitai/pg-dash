@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { QueryStatsStore } from "../query-stats.js";
+import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,18 +11,27 @@ function tmpDir() {
   return d;
 }
 
+function createDb(dir: string): Database.Database {
+  const dbPath = path.join(dir, "metrics.db");
+  const db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  return db;
+}
+
 describe("QueryStatsStore", () => {
   let store: QueryStatsStore;
+  let db: Database.Database;
   let dir: string;
 
   afterEach(() => {
     store?.close();
+    db?.close();
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("insertRow stores data and getTrend retrieves it", () => {
     dir = tmpDir();
-    store = new QueryStatsStore(dir);
+    db = createDb(dir); store = new QueryStatsStore(db);
     const now = Date.now();
 
     store.insertRow({
@@ -59,7 +69,7 @@ describe("QueryStatsStore", () => {
 
   it("getTrend respects time range", () => {
     dir = tmpDir();
-    store = new QueryStatsStore(dir);
+    db = createDb(dir); store = new QueryStatsStore(db);
     const now = Date.now();
 
     store.insertRow({ timestamp: now - 60000, queryid: "1", query: "q1", calls: 1, total_exec_time: 10, mean_exec_time: 10, min_exec_time: 1, max_exec_time: 20, rows: 1, shared_blks_hit: 0, shared_blks_read: 0 });
@@ -73,7 +83,7 @@ describe("QueryStatsStore", () => {
 
   it("getTopQueries orders by total_time", () => {
     dir = tmpDir();
-    store = new QueryStatsStore(dir);
+    db = createDb(dir); store = new QueryStatsStore(db);
     const now = Date.now();
 
     store.insertRow({ timestamp: now, queryid: "a", query: "fast", calls: 100, total_exec_time: 50, mean_exec_time: 0.5, min_exec_time: 0, max_exec_time: 1, rows: 100, shared_blks_hit: 0, shared_blks_read: 0 });
@@ -87,7 +97,7 @@ describe("QueryStatsStore", () => {
 
   it("getTopQueries orders by calls", () => {
     dir = tmpDir();
-    store = new QueryStatsStore(dir);
+    db = createDb(dir); store = new QueryStatsStore(db);
     const now = Date.now();
 
     store.insertRow({ timestamp: now, queryid: "a", query: "many", calls: 1000, total_exec_time: 10, mean_exec_time: 0.01, min_exec_time: 0, max_exec_time: 0.1, rows: 1000, shared_blks_hit: 0, shared_blks_read: 0 });
@@ -100,7 +110,7 @@ describe("QueryStatsStore", () => {
 
   it("getTopQueries orders by mean_time", () => {
     dir = tmpDir();
-    store = new QueryStatsStore(dir);
+    db = createDb(dir); store = new QueryStatsStore(db);
     const now = Date.now();
 
     store.insertRow({ timestamp: now, queryid: "a", query: "fast", calls: 100, total_exec_time: 50, mean_exec_time: 0.5, min_exec_time: 0, max_exec_time: 1, rows: 100, shared_blks_hit: 0, shared_blks_read: 0 });
@@ -112,7 +122,7 @@ describe("QueryStatsStore", () => {
 
   it("prune removes old data", () => {
     dir = tmpDir();
-    store = new QueryStatsStore(dir, 0); // 0 days retention
+    db = createDb(dir); store = new QueryStatsStore(db, 0); // 0 days retention
     const now = Date.now();
 
     store.insertRow({ timestamp: now - 1000, queryid: "1", query: "old", calls: 1, total_exec_time: 1, mean_exec_time: 1, min_exec_time: 1, max_exec_time: 1, rows: 1, shared_blks_hit: 0, shared_blks_read: 0 });
@@ -130,7 +140,7 @@ describe("QueryStatsStore", () => {
 
   it("getTopQueries respects limit", () => {
     dir = tmpDir();
-    store = new QueryStatsStore(dir);
+    db = createDb(dir); store = new QueryStatsStore(db);
     const now = Date.now();
 
     for (let i = 0; i < 5; i++) {

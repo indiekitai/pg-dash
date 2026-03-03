@@ -23,6 +23,7 @@ import { registerExplainRoutes } from "./routes/explain.js";
 import { registerDiskRoutes } from "./routes/disk.js";
 import { QueryStatsStore } from "./query-stats.js";
 import { registerQueryStatsRoutes } from "./routes/query-stats.js";
+import { DiskPredictor } from "./disk-prediction.js";
 import Database from "better-sqlite3";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "node:http";
@@ -39,6 +40,7 @@ interface ServerOptions {
   interval?: number;
   retentionDays?: number;
   snapshotInterval?: number;
+  queryStatsInterval?: number;
   longQueryThreshold?: number;
   auth?: string;
   token?: string;
@@ -80,8 +82,13 @@ export async function startServer(opts: ServerOptions) {
   const dataDir = opts.dataDir || path.join(os.homedir(), ".pg-dash");
   fs.mkdirSync(dataDir, { recursive: true });
 
+  // Initialize shared metrics database
+  const metricsDbPath = path.join(dataDir, "metrics.db");
+  const metricsDb = new Database(metricsDbPath);
+  metricsDb.pragma("journal_mode = WAL");
+
   // Initialize time-series store and collector
-  const store = new TimeseriesStore(opts.dataDir, opts.retentionDays);
+  const store = new TimeseriesStore(metricsDb, opts.retentionDays);
   const intervalMs = (opts.interval || 30) * 1000;
   const collector = new Collector(pool, store, intervalMs);
 
@@ -104,9 +111,9 @@ export async function startServer(opts: ServerOptions) {
   const alertManager = new AlertManager(alertsDb, opts.webhook);
   console.log("  Alert monitoring enabled");
 
-  // Initialize query stats store
-  const queryStatsStore = new QueryStatsStore(dataDir, opts.retentionDays);
-  const querySnapshotIntervalMs = (opts.snapshotInterval || 5) * 60 * 1000;
+  // Initialize query stats store (shares metricsDb)
+  const queryStatsStore = new QueryStatsStore(metricsDb, opts.retentionDays);
+  const querySnapshotIntervalMs = (opts.queryStatsInterval || 5) * 60 * 1000;
   queryStatsStore.startPeriodicSnapshot(pool, querySnapshotIntervalMs);
   console.log(`  Query stats snapshots every ${querySnapshotIntervalMs / 60000}m`);
 
@@ -325,6 +332,29 @@ export async function startServer(opts: ServerOptions) {
             const report = await getAdvisorReport(pool, longQueryThreshold);
             alertMetrics.health_score = report.score;
           } catch (err) { console.error("[alerts] Error checking health score:", (err as Error).message); }
+
+          // db_growth_pct_24h
+          try {
+            if (snapshot.db_size_bytes !== undefined) {
+              const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+              const oldData = store.query("db_size_bytes", dayAgo, dayAgo + 5 * 60 * 1000);
+              if (oldData.length > 0) {
+                const oldVal = oldData[0].value;
+                if (oldVal > 0) {
+                  alertMetrics.db_growth_pct_24h = ((snapshot.db_size_bytes - oldVal) / oldVal) * 100;
+                }
+              }
+            }
+          } catch (err) { console.error("[alerts] Error computing db_growth_pct_24h:", (err as Error).message); }
+
+          // days_until_full
+          try {
+            const diskPredictor = new DiskPredictor();
+            const pred = diskPredictor.predict(store, "db_size_bytes", 30);
+            if (pred?.daysUntilFull !== null && pred?.daysUntilFull !== undefined) {
+              alertMetrics.days_until_full = pred.daysUntilFull;
+            }
+          } catch (err) { console.error("[alerts] Error computing days_until_full:", (err as Error).message); }
         }
 
         const fired = alertManager.checkAlerts(alertMetrics);
@@ -364,7 +394,7 @@ export async function startServer(opts: ServerOptions) {
     queryStatsStore.stop();
     wss.close();
     server.close();
-    store.close();
+    metricsDb.close();
     schemaDb.close();
     alertsDb.close();
     await pool.end();

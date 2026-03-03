@@ -1,10 +1,6 @@
-import Database from "better-sqlite3";
-import path from "node:path";
-import os from "node:os";
-import fs from "node:fs";
+import type Database from "better-sqlite3";
 import type { Pool } from "pg";
 
-const DEFAULT_DIR = path.join(os.homedir(), ".pg-dash");
 const DEFAULT_RETENTION_DAYS = 7;
 
 export interface QueryStatRow {
@@ -50,14 +46,10 @@ export class QueryStatsStore {
   private prev: Map<string, CumulativeRow> = new Map();
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(dataDir?: string, retentionDays = DEFAULT_RETENTION_DAYS) {
-    const dir = dataDir || DEFAULT_DIR;
-    fs.mkdirSync(dir, { recursive: true });
-    const dbPath = path.join(dir, "metrics.db");
-    this.db = new Database(dbPath);
+  constructor(db: Database.Database, retentionDays = DEFAULT_RETENTION_DAYS) {
+    this.db = db;
     this.retentionMs = retentionDays * 24 * 60 * 60 * 1000;
 
-    this.db.pragma("journal_mode = WAL");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS query_stats (
         timestamp INTEGER NOT NULL,
@@ -239,6 +231,6 @@ export class QueryStatsStore {
   }
 
   close(): void {
-    this.db.close();
+    // No-op: DB lifecycle managed externally
   }
 }

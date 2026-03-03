@@ -32,6 +32,7 @@ const { values, positionals } = parseArgs({
     interval: { type: "string", short: "i" },
     "retention-days": { type: "string" },
     "snapshot-interval": { type: "string" },
+    "query-stats-interval": { type: "string" },
     "long-query-threshold": { type: "string" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
@@ -80,6 +81,7 @@ Options:
   -i, --interval <sec>   Collection interval in seconds (default: 30)
   --retention-days <N>   Metrics retention in days (default: 7)
   --snapshot-interval <h> Schema snapshot interval in hours (default: 6)
+  --query-stats-interval <min> Query stats snapshot interval in minutes (default: 5)
   --long-query-threshold <min> Long query threshold in minutes (default: 5)
   --threshold <score>    Health score threshold for check command (default: 70)
   -f, --format <fmt>     Output format: text|json (default: text)
@@ -184,6 +186,7 @@ if (subcommand === "check") {
   const interval = values.interval ? parseInt(values.interval, 10) : undefined;
   const retentionDays = parseInt(values["retention-days"] || process.env.PG_DASH_RETENTION_DAYS || "7", 10);
   const snapshotInterval = parseInt(values["snapshot-interval"] || process.env.PG_DASH_SNAPSHOT_INTERVAL || "6", 10);
+  const queryStatsInterval = parseInt(values["query-stats-interval"] || process.env.PG_DASH_QUERY_STATS_INTERVAL || "5", 10);
   const longQueryThreshold = parseInt(values["long-query-threshold"] || process.env.PG_DASH_LONG_QUERY_THRESHOLD || "5", 10);
   const auth = values.auth || undefined;
   const token = values.token || undefined;
@@ -204,6 +207,7 @@ if (subcommand === "check") {
     interval,
     retentionDays,
     snapshotInterval,
+    queryStatsInterval,
     longQueryThreshold,
     auth,
     token,
