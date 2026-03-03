@@ -41,6 +41,9 @@ const { values, positionals } = parseArgs({
     ci: { type: "boolean", default: false },
     diff: { type: "boolean", default: false },
     "snapshot-path": { type: "string" },
+    source: { type: "string" },
+    target: { type: "string" },
+    health: { type: "boolean", default: false },
   },
 });
 
@@ -63,6 +66,7 @@ Usage:
   pg-dash <connection-string>
   pg-dash check <connection-string>     Run health check and exit
   pg-dash schema-diff <connection-string> Show latest schema changes
+  pg-dash diff-env --source <url> --target <url>  Compare two environments
   pg-dash --host localhost --user postgres --db mydb
 
 Options:
@@ -91,6 +95,9 @@ Options:
   --ci                   Output GitHub Actions compatible annotations
   --diff                 Compare with previous run (saves snapshot for next run)
   --snapshot-path <path> Path to snapshot file for --diff (default: ~/.pg-dash/last-check.json)
+  --source <url>         Source database connection string (diff-env)
+  --target <url>         Target database connection string (diff-env)
+  --health               Also compare health scores and issues (diff-env)
   -v, --version          Show version
   -h, --help             Show this help
 
@@ -387,6 +394,57 @@ if (subcommand === "check") {
     console.log();
   }
   process.exit(0);
+} else if (subcommand === "diff-env") {
+  // Multi-environment schema + health diff
+  const sourceUrl = values.source;
+  const targetUrl = values.target;
+  if (!sourceUrl || !targetUrl) {
+    console.error("Error: diff-env requires --source <url> and --target <url>");
+    process.exit(1);
+  }
+  const format = values.format || "text";
+  const includeHealth = values.health || false;
+  const ci = values.ci || false;
+
+  const { diffEnvironments, formatTextDiff, formatMdDiff } = await import("./server/env-differ.js");
+
+  try {
+    const result = await diffEnvironments(sourceUrl, targetUrl, { includeHealth });
+
+    if (format === "json") {
+      console.log(JSON.stringify(result, null, 2));
+    } else if (format === "md") {
+      console.log(formatMdDiff(result));
+    } else {
+      // text (default)
+      const text = formatTextDiff(result);
+      console.log(text);
+      if (ci) {
+        // GitHub Actions annotations
+        for (const t of result.schema.missingTables) {
+          console.log(`::warning::diff-env: target missing table: ${t}`);
+        }
+        for (const cd of result.schema.columnDiffs) {
+          for (const col of cd.missingColumns) {
+            console.log(`::warning::diff-env: target missing column: ${cd.table}.${col.name} (${col.type})`);
+          }
+          for (const td of cd.typeDiffs) {
+            console.log(`::warning::diff-env: type mismatch: ${cd.table}.${td.column} ${td.sourceType}→${td.targetType}`);
+          }
+        }
+        for (const id of result.schema.indexDiffs) {
+          for (const idx of id.missingIndexes) {
+            console.log(`::warning::diff-env: target missing index: ${id.table}.${idx}`);
+          }
+        }
+      }
+    }
+
+    process.exit(result.summary.identical ? 0 : 1);
+  } catch (err: any) {
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
+  }
 } else {
   // Default: start server
   const connectionString = resolveConnectionString(0);

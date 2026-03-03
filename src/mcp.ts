@@ -11,6 +11,7 @@ import { getActivity } from "./server/queries/activity.js";
 import { getAdvisorReport, isSafeFix } from "./server/advisor.js";
 import { getSlowQueries } from "./server/queries/slow-queries.js";
 import { saveSnapshot, loadSnapshot, diffSnapshots } from "./server/snapshot.js";
+import { diffEnvironments } from "./server/env-differ.js";
 import { analyzeExplainPlan, detectQueryRegressions } from "./server/query-analyzer.js";
 import { analyzeMigration } from "./server/migration-checker.js";
 import Database from "better-sqlite3";
@@ -347,6 +348,25 @@ server.tool(
         return { content: [{ type: "text", text: "No query regressions detected in the specified window." }] };
       }
       return { content: [{ type: "text", text: JSON.stringify(regressions, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "pg_dash_compare_env",
+  "Compare schema and health between two PostgreSQL environments. Detects missing tables, columns, indexes.",
+  {
+    targetUrl: z.string().describe("Target database connection string to compare against"),
+    includeHealth: z.boolean().optional().describe("Also compare health scores and issues"),
+  },
+  async ({ targetUrl, includeHealth }) => {
+    try {
+      // source uses the existing pool's connection string; target gets its own pool (created inside diffEnvironments)
+      // We pass connString so the source pool is created fresh with a 10s timeout; existing pool is unaffected
+      const result = await diffEnvironments(connString, targetUrl, { includeHealth: includeHealth ?? false });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     } catch (err: any) {
       return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
     }
