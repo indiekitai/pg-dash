@@ -5,7 +5,7 @@ export async function getOverview(pool: Pool) {
   try {
     const version = await client.query("SHOW server_version");
     const uptime = await client.query(
-      "SELECT now() - pg_postmaster_start_time() AS uptime"
+      "SELECT to_char(now() - pg_postmaster_start_time(), 'DD \"d\" HH24 \"h\" MI \"m\"') AS uptime"
     );
     const dbSize = await client.query(
       "SELECT pg_size_pretty(pg_database_size(current_database())) AS size"

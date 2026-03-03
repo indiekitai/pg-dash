@@ -17,7 +17,9 @@ export function Header({ overview, health, connected }: { overview: Overview | n
       {overview ? (
         <div className="text-sm text-gray-400 flex flex-wrap gap-x-4">
           <span>PostgreSQL {overview.version}</span>
-          <span>Uptime: {overview.uptime}</span>
+          <span>Uptime: {typeof overview.uptime === 'object' && overview.uptime !== null
+            ? `${(overview.uptime as any).days ?? 0}d ${(overview.uptime as any).hours ?? 0}h ${(overview.uptime as any).minutes ?? 0}m`
+            : overview.uptime}</span>
           <span>Size: {overview.dbSize}</span>
         </div>
       ) : (

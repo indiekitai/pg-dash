@@ -1,11 +1,34 @@
 import type { Hono } from "hono";
 import type { Pool } from "pg";
-import { getAdvisorReport, isSafeFix } from "../advisor.js";
+import { getAdvisorReport, isSafeFix, getIgnoredIssues, ignoreIssue, unignoreIssue } from "../advisor.js";
 
 export function registerAdvisorRoutes(app: Hono, pool: Pool, longQueryThreshold: number) {
   app.get("/api/advisor", async (c) => {
     try { return c.json(await getAdvisorReport(pool, longQueryThreshold)); }
     catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.get("/api/advisor/ignored", (c) => {
+    try { return c.json(getIgnoredIssues()); }
+    catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.post("/api/advisor/ignore", async (c) => {
+    try {
+      const body = await c.req.json();
+      const issueId = body?.issueId;
+      if (!issueId) return c.json({ error: "issueId required" }, 400);
+      ignoreIssue(issueId);
+      return c.json({ ok: true });
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
+  });
+
+  app.delete("/api/advisor/ignore/:issueId", (c) => {
+    try {
+      const issueId = c.req.param("issueId");
+      unignoreIssue(issueId);
+      return c.json({ ok: true });
+    } catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
   app.post("/api/fix", async (c) => {

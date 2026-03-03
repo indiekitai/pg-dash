@@ -16,21 +16,31 @@ export interface AdvisorResult {
   grade: string;
   issues: AdvisorIssue[];
   breakdown: Record<string, { score: number; grade: string; count: number }>;
+  skipped: string[];
+  ignoredCount: number;
 }
 
-const SEVERITY_WEIGHT = { critical: 20, warning: 8, info: 3 } as const;
+const SEVERITY_WEIGHT = { critical: 15, warning: 5, info: 1 } as const;
+const MAX_DEDUCTION = { critical: 60, warning: 30, info: 10 } as const;
 
 export function computeAdvisorScore(issues: AdvisorIssue[]): number {
   let score = 100;
+  const deductions = { critical: 0, warning: 0, info: 0 };
   const counts = { critical: 0, warning: 0, info: 0 };
   for (const issue of issues) {
     counts[issue.severity]++;
     const n = counts[issue.severity];
     const weight = SEVERITY_WEIGHT[issue.severity];
-    // Diminishing penalty: full for first 5, half for 6-15, quarter for 16+
-    if (n <= 5) score -= weight;
-    else if (n <= 15) score -= weight * 0.5;
-    else score -= weight * 0.25;
+    // Diminishing penalty: full for first 3, half for 4-10, quarter for 11+
+    let penalty: number;
+    if (n <= 3) penalty = weight;
+    else if (n <= 10) penalty = weight * 0.5;
+    else penalty = weight * 0.25;
+    deductions[issue.severity] += penalty;
+  }
+  // Cap deductions per severity
+  for (const sev of ["critical", "warning", "info"] as const) {
+    score -= Math.min(deductions[sev], MAX_DEDUCTION[sev]);
   }
   return Math.max(0, Math.min(100, Math.round(score)));
 }
@@ -57,8 +67,13 @@ function computeBreakdown(issues: AdvisorIssue[]): Record<string, { score: numbe
 export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Promise<AdvisorResult> {
   const client = await pool.connect();
   const issues: AdvisorIssue[] = [];
+  const skipped: string[] = [];
 
   try {
+    // Detect PG version for compatibility
+    const versionResult = await client.query("SHOW server_version_num");
+    const pgVersion = parseInt(versionResult.rows[0].server_version_num);
+
     // ── Performance Advisors ───────────────────────────────────────
 
     // Missing indexes (high seq scans on large tables)
@@ -83,7 +98,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking seq scans:", (err as Error).message);
+      console.error("[advisor] Error checking seq scans:", (err as Error).message); skipped.push("seq scans: " + (err as Error).message);
     }
 
     // Bloated indexes (index size > 3x table size)
@@ -113,7 +128,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking bloated indexes:", (err as Error).message);
+      console.error("[advisor] Error checking bloated indexes:", (err as Error).message); skipped.push("bloated indexes: " + (err as Error).message);
     }
 
     // Table bloat (dead tuples > 10%)
@@ -140,7 +155,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking table bloat:", (err as Error).message);
+      console.error("[advisor] Error checking table bloat:", (err as Error).message); skipped.push("table bloat: " + (err as Error).message);
     }
 
     // Cache efficiency per table
@@ -170,7 +185,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         }
       }
     } catch (err) {
-      console.error("[advisor] Error checking cache efficiency:", (err as Error).message);
+      console.error("[advisor] Error checking cache efficiency:", (err as Error).message); skipped.push("cache efficiency: " + (err as Error).message);
     }
 
     // Slow queries from pg_stat_statements
@@ -200,7 +215,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         }
       }
     } catch (err) {
-      console.error("[advisor] Error checking slow queries:", (err as Error).message);
+      console.error("[advisor] Error checking slow queries:", (err as Error).message); skipped.push("slow queries: " + (err as Error).message);
     }
 
     // ── Maintenance Advisors ───────────────────────────────────────
@@ -229,7 +244,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking vacuum overdue:", (err as Error).message);
+      console.error("[advisor] Error checking vacuum overdue:", (err as Error).message); skipped.push("vacuum overdue: " + (err as Error).message);
     }
 
     // ANALYZE overdue
@@ -259,7 +274,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking analyze overdue:", (err as Error).message);
+      console.error("[advisor] Error checking analyze overdue:", (err as Error).message); skipped.push("analyze overdue: " + (err as Error).message);
     }
 
     // Transaction ID wraparound risk
@@ -296,7 +311,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         }
       }
     } catch (err) {
-      console.error("[advisor] Error checking xid wraparound:", (err as Error).message);
+      console.error("[advisor] Error checking xid wraparound:", (err as Error).message); skipped.push("xid wraparound: " + (err as Error).message);
     }
 
     // Idle connections > 10 min
@@ -324,7 +339,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking idle connections:", (err as Error).message);
+      console.error("[advisor] Error checking idle connections:", (err as Error).message); skipped.push("idle connections: " + (err as Error).message);
     }
 
     // ── Schema Advisors ────────────────────────────────────────────
@@ -353,7 +368,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking missing primary keys:", (err as Error).message);
+      console.error("[advisor] Error checking missing primary keys:", (err as Error).message); skipped.push("missing primary keys: " + (err as Error).message);
     }
 
     // Unused indexes (idx_scan = 0, size > 1MB)
@@ -381,7 +396,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking unused indexes:", (err as Error).message);
+      console.error("[advisor] Error checking unused indexes:", (err as Error).message); skipped.push("unused indexes: " + (err as Error).message);
     }
 
     // Duplicate indexes
@@ -407,7 +422,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking duplicate indexes:", (err as Error).message);
+      console.error("[advisor] Error checking duplicate indexes:", (err as Error).message); skipped.push("duplicate indexes: " + (err as Error).message);
     }
 
     // Missing foreign key indexes
@@ -439,7 +454,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking missing FK indexes:", (err as Error).message);
+      console.error("[advisor] Error checking missing FK indexes:", (err as Error).message); skipped.push("missing FK indexes: " + (err as Error).message);
     }
 
     // ── Infrastructure Advisors ──────────────────────────────────────
@@ -478,7 +493,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking locks:", (err as Error).message);
+      console.error("[advisor] Error checking locks:", (err as Error).message); skipped.push("locks: " + (err as Error).message);
     }
 
     // WAL/replication lag
@@ -502,16 +517,17 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking replication lag:", (err as Error).message);
+      console.error("[advisor] Error checking replication lag:", (err as Error).message); skipped.push("replication lag: " + (err as Error).message);
     }
 
     // Checkpoint frequency
     try {
+      const checkpointView = pgVersion >= 170000 ? 'pg_stat_checkpointer' : 'pg_stat_bgwriter';
       const r = await client.query(`
         SELECT checkpoints_req, checkpoints_timed,
           CASE WHEN (checkpoints_req + checkpoints_timed) = 0 THEN 0
             ELSE round(checkpoints_req::numeric / (checkpoints_req + checkpoints_timed) * 100, 1) END AS req_pct
-        FROM pg_stat_bgwriter
+        FROM ${checkpointView}
       `);
       const reqPct = parseFloat(r.rows[0]?.req_pct ?? "0");
       if (reqPct > 50) {
@@ -527,7 +543,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking checkpoint frequency:", (err as Error).message);
+      console.error("[advisor] Error checking checkpoint frequency:", (err as Error).message); skipped.push("checkpoint frequency: " + (err as Error).message);
     }
 
     // AutoVACUUM config check
@@ -546,7 +562,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking autovacuum:", (err as Error).message);
+      console.error("[advisor] Error checking autovacuum:", (err as Error).message); skipped.push("autovacuum: " + (err as Error).message);
     }
 
     // shared_buffers / work_mem check
@@ -572,7 +588,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking shared_buffers:", (err as Error).message);
+      console.error("[advisor] Error checking shared_buffers:", (err as Error).message); skipped.push("shared_buffers: " + (err as Error).message);
     }
 
     try {
@@ -591,7 +607,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking work_mem:", (err as Error).message);
+      console.error("[advisor] Error checking work_mem:", (err as Error).message); skipped.push("work_mem: " + (err as Error).message);
     }
 
     // ── Security Advisors ──────────────────────────────────────────
@@ -619,7 +635,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking superuser connections:", (err as Error).message);
+      console.error("[advisor] Error checking superuser connections:", (err as Error).message); skipped.push("superuser connections: " + (err as Error).message);
     }
 
     // SSL disabled
@@ -638,7 +654,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking SSL check:", (err as Error).message);
+      console.error("[advisor] Error checking SSL check:", (err as Error).message); skipped.push("SSL check: " + (err as Error).message);
     }
 
     // Password authentication check (PG 15+)
@@ -662,19 +678,66 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking trust auth:", (err as Error).message);
+      console.error("[advisor] Error checking trust auth:", (err as Error).message); skipped.push("trust auth: " + (err as Error).message);
     } // pg_hba_file_rules not available pre-PG15
 
-    const score = computeAdvisorScore(issues);
+    // Filter out ignored issues
+    const ignoredIds = getIgnoredIssues();
+    const ignoredSet = new Set(ignoredIds);
+    const activeIssues = issues.filter(i => !ignoredSet.has(i.id));
+    const ignoredCount = issues.length - activeIssues.length;
+
+    const score = computeAdvisorScore(activeIssues);
     return {
       score,
       grade: gradeFromScore(score),
-      issues,
-      breakdown: computeBreakdown(issues),
+      issues: activeIssues,
+      breakdown: computeBreakdown(activeIssues),
+      skipped,
+      ignoredCount,
     };
   } finally {
     client.release();
   }
+}
+
+// ── Ignored Issues Management ──────────────────────────────────
+
+import Database from "better-sqlite3";
+import path from "node:path";
+import os from "node:os";
+import fs from "node:fs";
+
+let _ignoredDb: ReturnType<typeof Database> | null = null;
+
+function getIgnoredDb(): ReturnType<typeof Database> {
+  if (_ignoredDb) return _ignoredDb;
+  const dataDir = process.env.PG_DASH_DATA_DIR || path.join(os.homedir(), ".pg-dash");
+  fs.mkdirSync(dataDir, { recursive: true });
+  const dbPath = path.join(dataDir, "alerts.db");
+  _ignoredDb = new Database(dbPath);
+  _ignoredDb.pragma("journal_mode = WAL");
+  _ignoredDb.exec("CREATE TABLE IF NOT EXISTS ignored_issues (issue_id TEXT PRIMARY KEY, ignored_at INTEGER)");
+  return _ignoredDb;
+}
+
+export function getIgnoredIssues(): string[] {
+  try {
+    const db = getIgnoredDb();
+    return db.prepare("SELECT issue_id FROM ignored_issues").all().map((r: any) => r.issue_id);
+  } catch {
+    return [];
+  }
+}
+
+export function ignoreIssue(issueId: string): void {
+  const db = getIgnoredDb();
+  db.prepare("INSERT OR REPLACE INTO ignored_issues (issue_id, ignored_at) VALUES (?, ?)").run(issueId, Date.now());
+}
+
+export function unignoreIssue(issueId: string): void {
+  const db = getIgnoredDb();
+  db.prepare("DELETE FROM ignored_issues WHERE issue_id = ?").run(issueId);
 }
 
 // Allowed SQL operations for the fix endpoint

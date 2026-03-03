@@ -23,6 +23,34 @@ export function HealthPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [fixModal, setFixModal] = useState<{ sql: string; title: string } | null>(null);
   const [executing, setExecuting] = useState(false);
+  const [showSkipped, setShowSkipped] = useState(false);
+  const [showMuted, setShowMuted] = useState(false);
+  const [mutedIds, setMutedIds] = useState<string[]>([]);
+
+  const muteIssue = async (issueId: string) => {
+    try {
+      await fetch("/api/advisor/ignore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ issueId }) });
+      setToast({ message: "Issue muted", type: "success" });
+      reload();
+    } catch (e: any) { setToast({ message: `Error: ${e.message}`, type: "error" }); }
+  };
+
+  const unmuteIssue = async (issueId: string) => {
+    try {
+      await fetch(`/api/advisor/ignore/${encodeURIComponent(issueId)}`, { method: "DELETE" });
+      setMutedIds(mutedIds.filter(id => id !== issueId));
+      setToast({ message: "Issue unmuted", type: "success" });
+      reload();
+    } catch (e: any) { setToast({ message: `Error: ${e.message}`, type: "error" }); }
+  };
+
+  const loadMuted = async () => {
+    try {
+      const r = await fetch("/api/advisor/ignored");
+      if (r.ok) setMutedIds(await r.json());
+    } catch {}
+    setShowMuted(!showMuted);
+  };
 
   const executeFix = async (sql: string) => {
     setExecuting(true);
@@ -94,8 +122,42 @@ export function HealthPage() {
           <option value="schema">Schema</option>
           <option value="security">Security</option>
         </select>
+        {(advisor.ignoredCount ?? 0) > 0 && (
+          <button className="px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 rounded cursor-pointer" onClick={loadMuted}>
+            🔇 {advisor.ignoredCount} muted
+          </button>
+        )}
         <button className="ml-auto px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 rounded cursor-pointer" onClick={reload}>↻ Re-scan</button>
       </div>
+
+      {/* Skipped checks */}
+      {advisor.skipped && advisor.skipped.length > 0 && (
+        <div className="bg-gray-900 rounded-xl p-4">
+          <button className="text-sm text-yellow-400 cursor-pointer" onClick={() => setShowSkipped(!showSkipped)}>
+            ⚠️ {advisor.skipped.length} check{advisor.skipped.length !== 1 ? "s" : ""} skipped {showSkipped ? "▲" : "▼"}
+          </button>
+          {showSkipped && (
+            <ul className="mt-2 space-y-1 text-xs text-gray-400">
+              {advisor.skipped.map((s, i) => <li key={i} className="font-mono">• {s}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Muted issues */}
+      {showMuted && mutedIds.length > 0 && (
+        <div className="bg-gray-900 rounded-xl p-4">
+          <h3 className="text-sm font-semibold mb-2">🔇 Muted Issues</h3>
+          <ul className="space-y-1">
+            {mutedIds.map((id) => (
+              <li key={id} className="flex items-center justify-between text-sm">
+                <span className="font-mono text-gray-400 truncate">{id}</span>
+                <button className="text-xs text-red-400 hover:text-red-300 cursor-pointer ml-2" onClick={() => unmuteIssue(id)}>Unmute</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Issues */}
       <div className="space-y-3">
@@ -127,6 +189,10 @@ export function HealthPage() {
                       className="px-2 py-0.5 text-xs bg-green-800 hover:bg-green-700 text-green-200 rounded cursor-pointer"
                       onClick={(e) => { e.stopPropagation(); setFixModal({ sql: issue.fix, title: issue.title }); }}
                     >▶ Execute Fix</button>
+                    <button
+                      className="px-2 py-0.5 text-xs bg-gray-700 hover:bg-gray-600 rounded cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); muteIssue(issue.id); }}
+                    >🔇 Mute</button>
                   </div>
                 </div>
               )}

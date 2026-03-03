@@ -54,6 +54,8 @@ export interface AdvisorResult {
   grade: string;
   issues: AdvisorIssue[];
   breakdown: Record<string, { score: number; grade: string; count: number }>;
+  skipped?: string[];
+  ignoredCount?: number;
 }
 
 export interface SchemaTable {

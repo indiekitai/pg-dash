@@ -10,32 +10,39 @@ describe("computeAdvisorScore", () => {
     expect(computeAdvisorScore([])).toBe(100);
   });
 
-  it("deducts 20 for critical", () => {
-    expect(computeAdvisorScore([issue("critical")])).toBe(80);
+  it("deducts 15 for critical", () => {
+    expect(computeAdvisorScore([issue("critical")])).toBe(85);
   });
 
-  it("deducts 8 for warning", () => {
-    expect(computeAdvisorScore([issue("warning")])).toBe(92);
+  it("deducts 5 for warning", () => {
+    expect(computeAdvisorScore([issue("warning")])).toBe(95);
   });
 
-  it("deducts 3 for info", () => {
-    expect(computeAdvisorScore([issue("info")])).toBe(97);
+  it("deducts 1 for info", () => {
+    expect(computeAdvisorScore([issue("info")])).toBe(99);
   });
 
-  it("clamps at 0 with many issues", () => {
+  it("caps critical deductions at 60", () => {
     const issues = Array.from({ length: 20 }, () => issue("critical"));
-    expect(computeAdvisorScore(issues)).toBe(0);
+    expect(computeAdvisorScore(issues)).toBe(40);
   });
 
   it("handles mixed severities", () => {
-    // 100 - 20 - 8 - 3 = 69
-    expect(computeAdvisorScore([issue("critical"), issue("warning"), issue("info")])).toBe(69);
+    // 100 - 15 - 5 - 1 = 79
+    expect(computeAdvisorScore([issue("critical"), issue("warning"), issue("info")])).toBe(79);
   });
 
-  it("applies diminishing penalty for many issues of same severity", () => {
-    // 10 warnings: first 5 at 8 = 40, next 5 at 4 = 20 => 100 - 60 = 40
-    const issues = Array.from({ length: 10 }, () => issue("warning"));
-    expect(computeAdvisorScore(issues)).toBe(40);
+  it("caps warning deductions at 30", () => {
+    // 19 warnings: first 3 at 5=15, next 7 at 2.5=17.5, next 9 at 1.25=11.25 => 43.75 but capped at 30
+    const issues = Array.from({ length: 19 }, () => issue("warning"));
+    expect(computeAdvisorScore(issues)).toBe(70);
+  });
+
+  it("gives B+ for only FK index warnings", () => {
+    // A database with only 10 FK index warnings should score well
+    const issues = Array.from({ length: 10 }, () => issue("warning", "schema"));
+    const score = computeAdvisorScore(issues);
+    expect(score).toBeGreaterThanOrEqual(70);
   });
 });
 
