@@ -186,6 +186,59 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 | `pg_dash_export` | Export full health report (JSON or Markdown) |
 | `pg_dash_diff` | Compare current health with last saved snapshot |
 
+## MCP Setup
+
+Connect pg-dash to Claude Desktop or Cursor for AI-assisted database management.
+
+### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "pg-dash": {
+      "command": "npx",
+      "args": ["@indiekitai/pg-dash-mcp", "postgresql://user:pass@host/db"]
+    }
+  }
+}
+```
+
+### Cursor
+
+Add to `.cursor/mcp.json` in your project:
+
+```json
+{
+  "mcpServers": {
+    "pg-dash": {
+      "command": "npx",
+      "args": ["@indiekitai/pg-dash-mcp", "postgresql://user:pass@host/db"]
+    }
+  }
+}
+```
+
+### Example Conversations
+
+Once connected, you can ask your AI assistant:
+
+**Diagnosis:**
+- "What's wrong with my database right now?"
+- "Why is my `users` table slow? Check for missing indexes."
+- "Show me the top 5 slowest queries this week."
+
+**Optimization:**
+- "Generate SQL to fix all missing FK indexes in one go."
+- "EXPLAIN this query for me: SELECT * FROM orders WHERE user_id = 123"
+- "Which tables are taking up the most space?"
+
+**Pre-migration check:**
+- "Run a health check and tell me if it's safe to deploy."
+- "What changed in the schema since last week?"
+- "Check if there are any idle connections blocking my migration."
+
 ## CI Integration
 
 ### GitHub Actions
@@ -212,16 +265,44 @@ Sample workflow (`.github/workflows/pg-check.yml`):
 name: Database Health Check
 on:
   push:
-    paths: ['migrations/**', 'prisma/**', 'drizzle/**']
+    paths: ['migrations/**', 'prisma/**', 'drizzle/**', 'supabase/migrations/**']
+  pull_request:
+    paths: ['migrations/**', 'prisma/**', 'drizzle/**', 'supabase/migrations/**']
   schedule:
-    - cron: '0 8 * * 1'  # Weekly Monday 8am
+    - cron: '0 8 * * 1'  # Weekly Monday 8am UTC
 jobs:
-  check:
+  db-health:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} --ci --diff --format md
+      # Cache snapshot across ephemeral runners for --diff to work
+      - name: Restore health snapshot
+        uses: actions/cache@v4
+        with:
+          path: .pg-dash-cache
+          key: pg-dash-snapshot-${{ github.ref }}
+          restore-keys: pg-dash-snapshot-
+      - name: Run pg-dash health check
+        id: pg-check
+        run: |
+          mkdir -p .pg-dash-cache
+          npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} \
+            --ci --diff --snapshot-path ./.pg-dash-cache/last-check.json \
+            --format md > pg-dash-report.md 2>&1
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+      - name: Save health snapshot
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .pg-dash-cache
+          key: pg-dash-snapshot-${{ github.ref }}-${{ github.run_id }}
+      - name: Fail if unhealthy
+        if: steps.pg-check.outputs.exit_code != '0'
+        run: exit 1
 ```
+
+See [`examples/github-actions-pg-check.yml`](examples/github-actions-pg-check.yml) for a full workflow with PR comments.
 
 ## Health Checks
 

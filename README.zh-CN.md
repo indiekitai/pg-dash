@@ -186,6 +186,59 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 | `pg_dash_export` | 导出完整健康报告（JSON 或 Markdown） |
 | `pg_dash_diff` | 与上次快照对比当前健康状态 |
 
+## MCP 配置
+
+将 pg-dash 接入 Claude Desktop 或 Cursor，实现 AI 辅助的数据库管理。
+
+### Claude Desktop
+
+在 macOS 上编辑 `~/Library/Application Support/Claude/claude_desktop_config.json`，Windows 上编辑 `%APPDATA%\Claude\claude_desktop_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "pg-dash": {
+      "command": "npx",
+      "args": ["@indiekitai/pg-dash-mcp", "postgresql://user:pass@host/db"]
+    }
+  }
+}
+```
+
+### Cursor
+
+在项目的 `.cursor/mcp.json` 中添加：
+
+```json
+{
+  "mcpServers": {
+    "pg-dash": {
+      "command": "npx",
+      "args": ["@indiekitai/pg-dash-mcp", "postgresql://user:pass@host/db"]
+    }
+  }
+}
+```
+
+### 示例对话
+
+连接后，你可以直接问 AI 助手：
+
+**诊断问题：**
+- "我的数据库现在有什么问题？"
+- "为什么我的 `users` 表这么慢？检查一下缺失的索引。"
+- "显示本周最慢的 5 条查询。"
+
+**性能优化：**
+- "一次性生成 SQL，修复所有缺失的外键索引。"
+- "帮我分析这条查询：SELECT * FROM orders WHERE user_id = 123"
+- "哪些表占用空间最多？"
+
+**迁移前检查：**
+- "跑一次健康检查，告诉我现在部署安不安全。"
+- "上周以来 schema 有哪些变化？"
+- "检查是否有空闲连接会阻塞我的迁移。"
+
 ## CI 集成
 
 ### GitHub Actions
@@ -212,16 +265,44 @@ pg-dash check postgres://... --ci --diff --format md
 name: Database Health Check
 on:
   push:
-    paths: ['migrations/**', 'prisma/**', 'drizzle/**']
+    paths: ['migrations/**', 'prisma/**', 'drizzle/**', 'supabase/migrations/**']
+  pull_request:
+    paths: ['migrations/**', 'prisma/**', 'drizzle/**', 'supabase/migrations/**']
   schedule:
-    - cron: '0 8 * * 1'  # 每周一早 8 点
+    - cron: '0 8 * * 1'  # 每周一 UTC 早 8 点
 jobs:
-  check:
+  db-health:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} --ci --diff --format md
+      # 缓存快照，解决 ephemeral runner 丢失 ~/.pg-dash 的问题
+      - name: Restore health snapshot
+        uses: actions/cache@v4
+        with:
+          path: .pg-dash-cache
+          key: pg-dash-snapshot-${{ github.ref }}
+          restore-keys: pg-dash-snapshot-
+      - name: Run pg-dash health check
+        id: pg-check
+        run: |
+          mkdir -p .pg-dash-cache
+          npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} \
+            --ci --diff --snapshot-path ./.pg-dash-cache/last-check.json \
+            --format md > pg-dash-report.md 2>&1
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+      - name: Save health snapshot
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .pg-dash-cache
+          key: pg-dash-snapshot-${{ github.ref }}-${{ github.run_id }}
+      - name: Fail if unhealthy
+        if: steps.pg-check.outputs.exit_code != '0'
+        run: exit 1
 ```
+
+完整工作流（包含 PR 评论）请参考 [`examples/github-actions-pg-check.yml`](examples/github-actions-pg-check.yml)。
 
 ## 健康检查
 

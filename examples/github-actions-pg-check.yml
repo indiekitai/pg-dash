@@ -1,13 +1,79 @@
 name: Database Health Check
 on:
   push:
-    paths: ['migrations/**', 'prisma/**', 'drizzle/**']
+    paths: ['migrations/**', 'prisma/**', 'drizzle/**', 'supabase/migrations/**']
+  pull_request:
+    paths: ['migrations/**', 'prisma/**', 'drizzle/**', 'supabase/migrations/**']
   schedule:
-    - cron: '0 8 * * 1'  # Weekly Monday 8am
+    - cron: '0 8 * * 1'  # Weekly Monday 8am UTC
 
 jobs:
-  check:
+  db-health:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} --ci --diff --format md
+
+      # Cache the last health snapshot for diff comparison
+      - name: Restore health snapshot
+        uses: actions/cache@v4
+        with:
+          path: .pg-dash-cache
+          key: pg-dash-snapshot-${{ github.ref }}
+          restore-keys: |
+            pg-dash-snapshot-
+
+      # Run health check with diff, output markdown for PR comment
+      - name: Run pg-dash health check
+        id: pg-check
+        run: |
+          mkdir -p .pg-dash-cache
+          npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} \
+            --ci \
+            --diff \
+            --snapshot-path ./.pg-dash-cache/last-check.json \
+            --format md > pg-dash-report.md 2>&1
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      # Post report as PR comment
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('pg-dash-report.md', 'utf8');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const botComment = comments.find(c => c.body.includes('pg-dash Health Report'));
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: report
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report
+              });
+            }
+
+      # Save updated snapshot to cache
+      - name: Save health snapshot
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .pg-dash-cache
+          key: pg-dash-snapshot-${{ github.ref }}-${{ github.run_id }}
+
+      # Fail the job if health check failed
+      - name: Check result
+        if: steps.pg-check.outputs.exit_code != '0'
+        run: exit 1

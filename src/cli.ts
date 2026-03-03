@@ -40,6 +40,7 @@ const { values, positionals } = parseArgs({
     format: { type: "string", short: "f" },
     ci: { type: "boolean", default: false },
     diff: { type: "boolean", default: false },
+    "snapshot-path": { type: "string" },
   },
 });
 
@@ -88,7 +89,8 @@ Options:
   --threshold <score>    Health score threshold for check command (default: 70)
   -f, --format <fmt>     Output format: text|json|md (default: text)
   --ci                   Output GitHub Actions compatible annotations
-  --diff                 Compare with previous run (saves to ~/.pg-dash/last-check.json)
+  --diff                 Compare with previous run (saves snapshot for next run)
+  --snapshot-path <path> Path to snapshot file for --diff (default: ~/.pg-dash/last-check.json)
   -v, --version          Show version
   -h, --help             Show this help
 
@@ -133,6 +135,8 @@ if (subcommand === "check") {
 
   const pool = new Pool({ connectionString });
   const checkDataDir = values["data-dir"] || path.join(os.homedir(), ".pg-dash");
+  // --snapshot-path lets CI persist the snapshot across ephemeral runners via cache
+  const snapshotPath = values["snapshot-path"] || path.join(checkDataDir, "last-check.json");
 
   try {
     const lqt = parseInt(values["long-query-threshold"] || process.env.PG_DASH_LONG_QUERY_THRESHOLD || "5", 10);
@@ -141,11 +145,11 @@ if (subcommand === "check") {
     // Diff logic
     let diff: import("./server/snapshot.js").SnapshotDiff | null = null;
     if (useDiff) {
-      const prev = loadSnapshot(checkDataDir);
+      const prev = loadSnapshot(snapshotPath);
       if (prev) {
         diff = diffSnapshots(prev.result, report);
       }
-      saveSnapshot(checkDataDir, report);
+      saveSnapshot(snapshotPath, report);
     }
 
     if (format === "json") {

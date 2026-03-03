@@ -253,14 +253,15 @@ server.tool("pg_dash_export", "Export full health report", { format: z.enum(["js
 
 server.tool("pg_dash_diff", "Compare current health with last saved snapshot", {}, async () => {
   try {
-    const prev = loadSnapshot(dataDir);
+    const snapshotPath = path.join(dataDir, "last-check.json");
+    const prev = loadSnapshot(snapshotPath);
     const current = await getAdvisorReport(pool, longQueryThreshold);
     if (!prev) {
-      saveSnapshot(dataDir, current);
+      saveSnapshot(snapshotPath, current);
       return { content: [{ type: "text", text: JSON.stringify({ message: "No previous snapshot found. Current result saved as baseline.", score: current.score, grade: current.grade, issues: current.issues.length }, null, 2) }] };
     }
     const diff = diffSnapshots(prev.result, current);
-    saveSnapshot(dataDir, current);
+    saveSnapshot(snapshotPath, current);
     return { content: [{ type: "text", text: JSON.stringify({ ...diff, previousTimestamp: prev.timestamp }, null, 2) }] };
   } catch (err: any) {
     return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
