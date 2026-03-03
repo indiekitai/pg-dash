@@ -7,7 +7,7 @@
 Think **pganalyze for indie devs** — no Grafana, no Prometheus, no Docker. Just `npx` and go.
 
 ```bash
-npx @indiekit/pg-dash postgres://user:pass@host/db
+npx @indiekitai/pg-dash postgres://user:pass@host/db
 ```
 
 ## Why?
@@ -76,10 +76,10 @@ pg-dash postgres://... --json
 
 ```bash
 # Using npx (no install needed)
-npx @indiekit/pg-dash postgres://user:pass@localhost/mydb
+npx @indiekitai/pg-dash postgres://user:pass@localhost/mydb
 
 # Or install globally
-npm install -g @indiekit/pg-dash
+npm install -g @indiekitai/pg-dash
 pg-dash postgres://user:pass@localhost/mydb
 
 # With individual options
@@ -162,7 +162,7 @@ pg-dash check postgres://... --threshold 70 --format json
 
 # Example GitHub Actions
 - name: Database Health Check
-  run: npx @indiekit/pg-dash check ${{ secrets.DATABASE_URL }} --threshold 70
+  run: npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} --threshold 70
 ```
 
 ## Data Storage

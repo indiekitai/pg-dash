@@ -1,5 +1,5 @@
 {
-  "name": "@indiekit/pg-dash",
+  "name": "@indiekitai/pg-dash",
   "version": "0.1.0",
   "description": "Lightweight PostgreSQL monitoring dashboard",
   "type": "module",

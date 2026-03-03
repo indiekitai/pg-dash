@@ -7,7 +7,7 @@
 可以理解为**给独立开发者的 pganalyze** —— 不需要 Grafana，不需要 Prometheus，不需要 Docker。只需 `npx` 即可运行。
 
 ```bash
-npx @indiekit/pg-dash postgres://user:pass@host/db
+npx @indiekitai/pg-dash postgres://user:pass@host/db
 ```
 
 ## 为什么选 pg-dash？
@@ -76,10 +76,10 @@ pg-dash postgres://... --json
 
 ```bash
 # 使用 npx（无需安装）
-npx @indiekit/pg-dash postgres://user:pass@localhost/mydb
+npx @indiekitai/pg-dash postgres://user:pass@localhost/mydb
 
 # 或全局安装
-npm install -g @indiekit/pg-dash
+npm install -g @indiekitai/pg-dash
 pg-dash postgres://user:pass@localhost/mydb
 
 # 使用独立参数
@@ -162,7 +162,7 @@ pg-dash check postgres://... --threshold 70 --format json
 
 # GitHub Actions 示例
 - name: Database Health Check
-  run: npx @indiekit/pg-dash check ${{ secrets.DATABASE_URL }} --threshold 70
+  run: npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} --threshold 70
 ```
 
 ## 数据存储
