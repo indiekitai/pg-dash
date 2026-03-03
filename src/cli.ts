@@ -420,21 +420,30 @@ if (subcommand === "check") {
       const text = formatTextDiff(result);
       console.log(text);
       if (ci) {
-        // GitHub Actions annotations
+        // GitHub Actions annotations — severity matches impact
         for (const t of result.schema.missingTables) {
-          console.log(`::warning::diff-env: target missing table: ${t}`);
+          console.log(`::error::diff-env: target missing table: ${t}`);
+        }
+        for (const t of result.schema.extraTables) {
+          console.log(`::notice::diff-env: target has extra table: ${t}`);
         }
         for (const cd of result.schema.columnDiffs) {
           for (const col of cd.missingColumns) {
-            console.log(`::warning::diff-env: target missing column: ${cd.table}.${col.name} (${col.type})`);
+            console.log(`::error::diff-env: target missing column: ${cd.table}.${col.name} (${col.type})`);
+          }
+          for (const col of cd.extraColumns) {
+            console.log(`::notice::diff-env: target has extra column: ${cd.table}.${col.name} (${col.type})`);
           }
           for (const td of cd.typeDiffs) {
-            console.log(`::warning::diff-env: type mismatch: ${cd.table}.${td.column} ${td.sourceType}→${td.targetType}`);
+            console.log(`::error::diff-env: type mismatch: ${cd.table}.${td.column} ${td.sourceType}→${td.targetType}`);
           }
         }
         for (const id of result.schema.indexDiffs) {
           for (const idx of id.missingIndexes) {
             console.log(`::warning::diff-env: target missing index: ${id.table}.${idx}`);
+          }
+          for (const idx of id.extraIndexes) {
+            console.log(`::notice::diff-env: target has extra index: ${id.table}.${idx}`);
           }
         }
       }

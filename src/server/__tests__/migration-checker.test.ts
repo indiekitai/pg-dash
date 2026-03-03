@@ -223,6 +223,46 @@ describe("analyzeMigration — result structure", () => {
   });
 });
 
+// ─── Comment stripping ───────────────────────────────────────────────────────
+
+describe("comment stripping — no false positives", () => {
+  it("ignores DROP TABLE mentioned in a single-line comment", async () => {
+    const result = await analyzeMigration(
+      "-- DROP TABLE users if needed\nALTER TABLE users ADD COLUMN notes TEXT;"
+    );
+    expect(result.safe).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  it("ignores UPDATE without WHERE mentioned in a block comment", async () => {
+    const result = await analyzeMigration(
+      "/* UPDATE users SET foo = 1 is dangerous */\nALTER TABLE posts ADD COLUMN slug TEXT;"
+    );
+    expect(result.safe).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  it("still detects real DROP TABLE after a comment", async () => {
+    const result = await analyzeMigration(
+      "-- cleanup old table\nDROP TABLE old_data;"
+    );
+    const drop = result.issues.find((i) => i.code === "DROP_TABLE");
+    expect(drop).toBeDefined();
+    expect(drop?.lineNumber).toBe(2);
+  });
+
+  it("line numbers are accurate after comment stripping", async () => {
+    const sql = [
+      "-- comment line 1",
+      "-- comment line 2",
+      "CREATE INDEX idx_x ON users (email);",
+    ].join("\n");
+    const result = await analyzeMigration(sql);
+    const issue = result.issues.find((i) => i.code === "INDEX_WITHOUT_CONCURRENTLY");
+    expect(issue?.lineNumber).toBe(3);
+  });
+});
+
 // ─── MD format check ──────────────────────────────────────────────────────────
 
 describe("formatMarkdown output", () => {

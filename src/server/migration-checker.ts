@@ -24,6 +24,17 @@ export interface MigrationCheckResult {
   checkedAt: string;
 }
 
+// Strip SQL comments while preserving line numbers (replace with spaces)
+function stripComments(sql: string): string {
+  // Replace /* ... */ block comments (preserve newlines for line number tracking)
+  let stripped = sql.replace(/\/\*[\s\S]*?\*\//g, (match) =>
+    match.replace(/[^\n]/g, " ")
+  );
+  // Replace -- single-line comments (preserve the newline)
+  stripped = stripped.replace(/--[^\n]*/g, (match) => " ".repeat(match.length));
+  return stripped;
+}
+
 // Helper: find line number of a match in the original SQL
 function findLineNumber(sql: string, matchIndex: number): number {
   const before = sql.slice(0, matchIndex);
@@ -46,6 +57,7 @@ function extractOperatedTables(sql: string): {
   dropTables: string[];     // DROP TABLE <table>
   refTables: string[];      // REFERENCES <table>
 } {
+  sql = stripComments(sql);
   const indexTables: string[] = [];
   const alterTables: string[] = [];
   const dropTables: string[] = [];
@@ -74,7 +86,8 @@ function extractOperatedTables(sql: string): {
 // Static analysis — no DB needed
 function staticCheck(sql: string): MigrationIssue[] {
   const issues: MigrationIssue[] = [];
-  const upper = sql.toUpperCase();
+  // Strip comments before analysis to avoid false positives from commented-out SQL
+  sql = stripComments(sql);
 
   // Determine tables created IN THIS MIGRATION (so we know they're brand-new)
   const createdTablesRe = /\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w."]+)/gi;
