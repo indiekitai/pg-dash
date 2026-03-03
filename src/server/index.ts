@@ -33,10 +33,17 @@ const RANGE_MAP: Record<string, number> = {
 interface ServerOptions {
   connectionString: string;
   port: number;
+  bind?: string;
   open: boolean;
   json: boolean;
   dataDir?: string;
   interval?: number;
+  retentionDays?: number;
+  snapshotInterval?: number;
+  longQueryThreshold?: number;
+  auth?: string; // user:password
+  token?: string; // bearer token
+  webhook?: string;
 }
 
 export async function startServer(opts: ServerOptions) {
@@ -73,8 +80,9 @@ export async function startServer(opts: ServerOptions) {
   fs.mkdirSync(dataDir, { recursive: true });
 
   // Initialize time-series store and collector
-  const store = new TimeseriesStore(opts.dataDir);
+  const store = new TimeseriesStore(opts.dataDir, opts.retentionDays);
   const intervalMs = (opts.interval || 30) * 1000;
+  const longQueryThreshold = opts.longQueryThreshold || 5;
   const collector = new Collector(pool, store, intervalMs);
 
   console.log(`  Collecting metrics every ${(intervalMs / 1000)}s...`);
@@ -84,7 +92,8 @@ export async function startServer(opts: ServerOptions) {
   const schemaDbPath = path.join(dataDir, "schema.db");
   const schemaDb = new Database(schemaDbPath);
   schemaDb.pragma("journal_mode = WAL");
-  const schemaTracker = new SchemaTracker(schemaDb, pool);
+  const snapshotIntervalMs = (opts.snapshotInterval || 6) * 60 * 60 * 1000;
+  const schemaTracker = new SchemaTracker(schemaDb, pool, snapshotIntervalMs);
   schemaTracker.start();
   console.log("  Schema change tracking enabled");
 
@@ -92,10 +101,33 @@ export async function startServer(opts: ServerOptions) {
   const alertsDbPath = path.join(dataDir, "alerts.db");
   const alertsDb = new Database(alertsDbPath);
   alertsDb.pragma("journal_mode = WAL");
-  const alertManager = new AlertManager(alertsDb);
+  const alertManager = new AlertManager(alertsDb, opts.webhook);
   console.log("  Alert monitoring enabled");
 
   const app = new Hono();
+
+  // Auth middleware
+  if (opts.auth || opts.token) {
+    app.use("*", async (c, next) => {
+      const authHeader = c.req.header("authorization") || "";
+      if (opts.token) {
+        if (authHeader === `Bearer ${opts.token}`) return next();
+      }
+      if (opts.auth) {
+        const [user, pass] = opts.auth.split(":");
+        const expected = "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
+        if (authHeader === expected) return next();
+      }
+      // Check query param token for WebSocket upgrade compatibility
+      const url = new URL(c.req.url, "http://localhost");
+      if (opts.token && url.searchParams.get("token") === opts.token) return next();
+
+      if (opts.auth) {
+        c.header("WWW-Authenticate", 'Basic realm="pg-dash"');
+      }
+      return c.text("Unauthorized", 401);
+    });
+  }
 
   // Phase 0 endpoints
   app.get("/api/overview", async (c) => {
@@ -318,14 +350,19 @@ export async function startServer(opts: ServerOptions) {
     const urlPath = c.req.path === "/" ? "/index.html" : c.req.path;
     const filePath = path.join(uiPath, urlPath);
     try {
-      const content = fs.readFileSync(filePath);
+      const content = await fs.promises.readFile(filePath);
       const ext = path.extname(filePath);
       const contentType = MIME_TYPES[ext] || "application/octet-stream";
       return new Response(content, { headers: { "content-type": contentType } });
     } catch {
       // SPA fallback
-      const html = fs.readFileSync(path.join(uiPath, "index.html"));
-      return new Response(html, { headers: { "content-type": "text/html" } });
+      try {
+        const html = await fs.promises.readFile(path.join(uiPath, "index.html"));
+        return new Response(html, { headers: { "content-type": "text/html" } });
+      } catch (err) {
+        console.error("[static] Error reading index.html:", (err as Error).message);
+        return c.text("Not Found", 404);
+      }
     }
   });
 
@@ -355,7 +392,24 @@ export async function startServer(opts: ServerOptions) {
     });
   });
 
-  const wss = new WebSocketServer({ server, path: "/ws" });
+  const wss = new WebSocketServer({
+    server,
+    path: "/ws",
+    verifyClient: (opts.auth || opts.token) ? (info, cb) => {
+      const url = new URL(info.req.url || "/", `http://localhost:${opts.port}`);
+      const qToken = url.searchParams.get("token");
+      if (opts.token && qToken === opts.token) return cb(true);
+
+      const authHeader = info.req.headers["authorization"] || "";
+      if (opts.token && authHeader === `Bearer ${opts.token}`) return cb(true);
+      if (opts.auth) {
+        const [user, pass] = opts.auth.split(":");
+        const expected = "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
+        if (authHeader === expected) return cb(true);
+      }
+      cb(false, 401, "Unauthorized");
+    } : undefined,
+  });
   const clients = new Set<WebSocket>();
 
   wss.on("connection", (ws) => {
@@ -369,13 +423,14 @@ export async function startServer(opts: ServerOptions) {
   });
 
   // Broadcast metrics, activity, and check alerts on each collection
+  let collectCycleCount = 0;
   const origCollect = collector.collect.bind(collector);
   collector.collect = async () => {
     const snapshot = await origCollect();
     if (clients.size > 0 && Object.keys(snapshot).length > 0) {
       const metricsMsg = JSON.stringify({ type: "metrics", data: snapshot });
       let activityData: any[] = [];
-      try { activityData = await getActivity(pool); } catch {}
+      try { activityData = await getActivity(pool); } catch (err) { console.error("[ws] Error fetching activity:", (err as Error).message); }
       const activityMsg = JSON.stringify({ type: "activity", data: activityData });
       for (const ws of clients) {
         if (ws.readyState === WebSocket.OPEN) {
@@ -410,10 +465,10 @@ export async function startServer(opts: ServerOptions) {
         try {
           const client = await pool.connect();
           try {
-            const r = await client.query("SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'active' AND now() - query_start > interval '5 minutes' AND pid != pg_backend_pid()");
+            const r = await client.query(`SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'active' AND now() - query_start > interval '${longQueryThreshold} minutes' AND pid != pg_backend_pid()`);
             alertMetrics.long_query_count = r.rows[0]?.c || 0;
           } finally { client.release(); }
-        } catch {}
+        } catch (err) { console.error("[alerts] Error checking long queries:", (err as Error).message); }
 
         // Idle in transaction count
         try {
@@ -422,16 +477,16 @@ export async function startServer(opts: ServerOptions) {
             const r = await client.query("SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'idle in transaction' AND now() - state_change > interval '10 minutes'");
             alertMetrics.idle_in_tx_count = r.rows[0]?.c || 0;
           } finally { client.release(); }
-        } catch {}
+        } catch (err) { console.error("[alerts] Error checking idle-in-tx:", (err as Error).message); }
 
         // Health score (computed less frequently - only if we already have advisor data)
-        // We'll check it periodically (don't want to run full advisor every 30s)
-        // Simple approach: check on every 10th collection
-        if (Math.random() < 0.1) {
+        // Check on every 10th collection cycle
+        collectCycleCount++;
+        if (collectCycleCount % 10 === 0) {
           try {
             const report = await getAdvisorReport(pool);
             alertMetrics.health_score = report.score;
-          } catch {}
+          } catch (err) { console.error("[alerts] Error checking health score:", (err as Error).message); }
         }
 
         const fired = alertManager.checkAlerts(alertMetrics);
@@ -453,13 +508,14 @@ export async function startServer(opts: ServerOptions) {
     return snapshot;
   };
 
-  server.listen(opts.port, async () => {
-    console.log(`\n  pg-dash running at http://localhost:${opts.port}\n`);
+  const bindAddr = opts.bind || "127.0.0.1";
+  server.listen(opts.port, bindAddr, async () => {
+    console.log(`\n  pg-dash running at http://${bindAddr}:${opts.port}\n`);
     if (opts.open) {
       try {
         const openMod = await import("open");
         await openMod.default(`http://localhost:${opts.port}`);
-      } catch {}
+      } catch (err) { console.error("[open] Failed to open browser:", (err as Error).message); }
     }
   });
 

@@ -32,11 +32,11 @@ let alertsDb: Database.Database | null = null;
 try {
   const schemaPath = path.join(dataDir, "schema.db");
   if (fs.existsSync(schemaPath)) schemaDb = new Database(schemaPath, { readonly: true });
-} catch {}
+} catch (err) { console.error("[mcp] Error:", (err as Error).message); }
 try {
   const alertsPath = path.join(dataDir, "alerts.db");
   if (fs.existsSync(alertsPath)) alertsDb = new Database(alertsPath, { readonly: true });
-} catch {}
+} catch (err) { console.error("[mcp] Error:", (err as Error).message); }
 
 const server = new McpServer({ name: "pg-dash", version: "0.1.0" });
 

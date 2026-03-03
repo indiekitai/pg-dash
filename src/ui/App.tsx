@@ -121,9 +121,18 @@ function useFetch<T>(url: string, refreshMs = 30000): { data: T | null; error: s
   return { data, error, reload };
 }
 
+interface FiredAlert {
+  id: number;
+  rule_id: number;
+  timestamp: number;
+  value: number;
+  message: string;
+}
+
 function useWebSocket() {
   const [metrics, setMetrics] = useState<Record<string, number>>({});
   const [activity, setActivity] = useState<ActivityRow[]>([]);
+  const [alerts, setAlerts] = useState<FiredAlert[]>([]);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
@@ -141,14 +150,17 @@ function useWebSocket() {
           const msg = JSON.parse(e.data);
           if (msg.type === "metrics") setMetrics(msg.data);
           if (msg.type === "activity") setActivity(msg.data);
-        } catch {}
+          if (msg.type === "alerts") {
+            setAlerts(prev => [...msg.data, ...prev].slice(0, 100));
+          }
+        } catch (e) { console.error(e); }
       };
     };
     connect();
     return () => { clearTimeout(reconnectTimer); ws?.close(); };
   }, []);
 
-  return { metrics, activity, connected };
+  return { metrics, activity, alerts, connected };
 }
 
 // ── Shared Components ──────────────────────────────────────────────────
@@ -577,7 +589,7 @@ function SchemaHistoryPanel() {
     try {
       const r = await fetch(`/api/schema/diff?from=${diffFrom}&to=${diffTo}`);
       setDiffResult(await r.json());
-    } catch {}
+    } catch (e) { console.error(e); }
   };
 
   const takeSnapshot = async () => {
@@ -585,7 +597,7 @@ function SchemaHistoryPanel() {
     try {
       await fetch("/api/schema/snapshot", { method: "POST" });
       reload();
-    } catch {}
+    } catch (e) { console.error(e); }
     setSnapshotting(false);
   };
 
@@ -689,7 +701,7 @@ function SchemaTab() {
     try {
       const r = await fetch(`/api/schema/tables/${name}`);
       if (r.ok) setDetail(await r.json());
-    } catch {}
+    } catch (e) { console.error(e); }
     setLoadingDetail(false);
   };
 
@@ -1168,7 +1180,19 @@ export default function App() {
   const { data: health } = useFetch<AdvisorResult>("/api/advisor", 60000);
   const { data: databases } = useFetch<Database[]>("/api/databases", 60000);
   const { data: tables } = useFetch<TableRow[]>("/api/tables", 60000);
-  const { metrics: liveMetrics, activity: liveActivity, connected } = useWebSocket();
+  const { metrics: liveMetrics, activity: liveActivity, alerts: liveAlerts, connected } = useWebSocket();
+  const [alertToast, setAlertToast] = useState<string | null>(null);
+
+  // Show toast for new WebSocket alerts
+  useEffect(() => {
+    if (liveAlerts.length > 0) {
+      const latest = liveAlerts[0];
+      setAlertToast(latest.message);
+      setAlertCount(prev => prev + 1);
+      const t = setTimeout(() => setAlertToast(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [liveAlerts.length]);
   const [range, setRange] = useState<Range>("1h");
   const [tab, setTab] = useState<Tab>("overview");
   const [alertCount, setAlertCount] = useState(0);
@@ -1183,7 +1207,7 @@ export default function App() {
         const oneHourAgo = Date.now() - 3600000;
         const recent = data.filter((a: any) => a.timestamp > oneHourAgo);
         setAlertCount(recent.length);
-      } catch {}
+      } catch (e) { console.error(e); }
     };
     load();
     const iv = setInterval(load, 30000);
@@ -1264,6 +1288,8 @@ export default function App() {
         {tab === "schema" && <SchemaTab />}
         {tab === "activity" && <ActivityTab activity={liveActivity} />}
         {tab === "alerts" && <AlertsTab />}
+
+        {alertToast && <Toast message={`🔔 ${alertToast}`} type="error" onClose={() => setAlertToast(null)} />}
       </div>
     </ErrorBoundary>
   );

@@ -15,6 +15,10 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     port: { type: "string", short: "p", default: "3480" },
+    bind: { type: "string", default: "127.0.0.1" },
+    auth: { type: "string" },
+    token: { type: "string" },
+    webhook: { type: "string" },
     "no-open": { type: "boolean", default: false },
     json: { type: "boolean", default: false },
     host: { type: "string" },
@@ -24,6 +28,9 @@ const { values, positionals } = parseArgs({
     "pg-port": { type: "string" },
     "data-dir": { type: "string" },
     interval: { type: "string", short: "i" },
+    "retention-days": { type: "string" },
+    "snapshot-interval": { type: "string" },
+    "long-query-threshold": { type: "string" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
     threshold: { type: "string" },
@@ -54,6 +61,10 @@ Usage:
 
 Options:
   -p, --port <port>      Dashboard port (default: 3480)
+  --bind <addr>          Bind address (default: 127.0.0.1)
+  --auth <user:pass>     Basic auth credentials (user:password)
+  --token <token>        Bearer token for authentication
+  --webhook <url>        Webhook URL for alert notifications
   --no-open              Don't auto-open browser (default: opens)
   --json                 Dump health check as JSON and exit
   --host <host>          PostgreSQL host
@@ -63,10 +74,16 @@ Options:
   --pg-port <port>       PostgreSQL port (default: 5432)
   --data-dir <dir>       Data directory for metrics (default: ~/.pg-dash)
   -i, --interval <sec>   Collection interval in seconds (default: 30)
+  --retention-days <N>   Metrics retention in days (default: 7)
+  --snapshot-interval <h> Schema snapshot interval in hours (default: 6)
+  --long-query-threshold <min> Long query threshold in minutes (default: 5)
   --threshold <score>    Health score threshold for check command (default: 70)
   -f, --format <fmt>     Output format: text|json (default: text)
   -v, --version          Show version
   -h, --help             Show this help
+
+Environment variables:
+  PG_DASH_RETENTION_DAYS, PG_DASH_SNAPSHOT_INTERVAL, PG_DASH_LONG_QUERY_THRESHOLD
 `);
   process.exit(0);
 }
@@ -158,14 +175,33 @@ if (subcommand === "check") {
   // Default: start server
   const connectionString = resolveConnectionString(0);
   const port = parseInt(values.port!, 10);
+  const bind = values.bind || process.env.PG_DASH_BIND || "127.0.0.1";
   const interval = values.interval ? parseInt(values.interval, 10) : undefined;
+  const retentionDays = parseInt(values["retention-days"] || process.env.PG_DASH_RETENTION_DAYS || "7", 10);
+  const snapshotInterval = parseInt(values["snapshot-interval"] || process.env.PG_DASH_SNAPSHOT_INTERVAL || "6", 10);
+  const longQueryThreshold = parseInt(values["long-query-threshold"] || process.env.PG_DASH_LONG_QUERY_THRESHOLD || "5", 10);
+  const auth = values.auth || undefined;
+  const token = values.token || undefined;
+  const webhook = values.webhook || undefined;
+
+  // Security warning
+  if (bind === "0.0.0.0" && !auth && !token) {
+    console.warn("\n  ⚠️  WARNING: Dashboard is exposed without authentication. Use --auth or --token.\n");
+  }
 
   await startServer({
     connectionString,
     port,
+    bind,
     open: !values["no-open"],
     json: values.json!,
     dataDir: values["data-dir"],
     interval,
+    retentionDays,
+    snapshotInterval,
+    longQueryThreshold,
+    auth,
+    token,
+    webhook,
   });
 }

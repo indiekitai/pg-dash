@@ -121,7 +121,7 @@ export async function getSchemaTableDetail(pool: Pool, tableName: string) {
         `SELECT * FROM ${client.escapeIdentifier(schema)}.${client.escapeIdentifier(name)} LIMIT 10`
       );
       sampleData = sample.rows;
-    } catch {}
+    } catch (err) { console.error("[schema] Error:", (err as Error).message); }
 
     return {
       ...tableInfo.rows[0],

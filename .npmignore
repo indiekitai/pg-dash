@@ -1,0 +1,10 @@
+BRIEF.md
+PHASE*.md
+src/
+*.test.ts
+__tests__/
+tsup.config.ts
+vite.config.ts
+vitest.config.ts
+tsconfig.json
+.gitignore

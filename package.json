@@ -21,7 +21,8 @@
     "hono": "^4.4.0",
     "open": "^10.1.0",
     "pg": "^8.12.0",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
@@ -47,5 +48,13 @@
       "better-sqlite3",
       "esbuild"
     ]
-  }
+  },
+  "license": "MIT",
+  "files": [
+    "dist/",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "package.json"
+  ]
 }

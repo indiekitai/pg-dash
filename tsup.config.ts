@@ -3,7 +3,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: ["src/cli.ts", "src/mcp.ts"],
   format: ["esm"],
-  target: "node22",
+  target: "node18",
   outDir: "dist",
   clean: false,
   splitting: false,

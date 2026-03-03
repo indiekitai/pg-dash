@@ -64,4 +64,12 @@ describe("isSafeFix", () => {
   it("rejects SELECT (non pg_terminate)", () => expect(isSafeFix("SELECT * FROM users;")).toBe(false));
   it("case insensitive", () => expect(isSafeFix("vacuum analyze t;")).toBe(true));
   it("rejects empty", () => expect(isSafeFix("")).toBe(false));
+
+  // SQL injection bypass tests
+  it("rejects EXPLAIN ANALYZE DELETE", () => expect(isSafeFix("EXPLAIN ANALYZE DELETE FROM users;")).toBe(false));
+  it("rejects EXPLAIN ANALYZE UPDATE", () => expect(isSafeFix("EXPLAIN ANALYZE UPDATE users SET name = 'x';")).toBe(false));
+  it("rejects multi-statement with VACUUM", () => expect(isSafeFix("VACUUM; DROP TABLE users;")).toBe(false));
+  it("rejects multi-statement with SELECT", () => expect(isSafeFix("SELECT pg_terminate_backend(1); DROP TABLE users;")).toBe(false));
+  it("allows EXPLAIN ANALYZE SELECT", () => expect(isSafeFix("EXPLAIN ANALYZE SELECT * FROM users;")).toBe(true));
+  it("rejects EXPLAIN ANALYZE INSERT", () => expect(isSafeFix("EXPLAIN ANALYZE INSERT INTO users VALUES (1);")).toBe(false));
 });

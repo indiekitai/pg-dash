@@ -442,6 +442,158 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
       console.error("[advisor] Error checking missing FK indexes:", (err as Error).message);
     }
 
+    // ── Infrastructure Advisors ──────────────────────────────────────
+
+    // Lock detection
+    try {
+      const r = await client.query(`
+        SELECT blocked_locks.pid AS blocked_pid,
+          blocking_locks.pid AS blocking_pid,
+          blocked_activity.query AS blocked_query
+        FROM pg_catalog.pg_locks blocked_locks
+        JOIN pg_catalog.pg_locks blocking_locks ON blocking_locks.locktype = blocked_locks.locktype
+          AND blocking_locks.database IS NOT DISTINCT FROM blocked_locks.database
+          AND blocking_locks.relation IS NOT DISTINCT FROM blocked_locks.relation
+          AND blocking_locks.page IS NOT DISTINCT FROM blocked_locks.page
+          AND blocking_locks.tuple IS NOT DISTINCT FROM blocked_locks.tuple
+          AND blocking_locks.virtualxid IS NOT DISTINCT FROM blocked_locks.virtualxid
+          AND blocking_locks.transactionid IS NOT DISTINCT FROM blocked_locks.transactionid
+          AND blocking_locks.classid IS NOT DISTINCT FROM blocked_locks.classid
+          AND blocking_locks.objid IS NOT DISTINCT FROM blocked_locks.objid
+          AND blocking_locks.objsubid IS NOT DISTINCT FROM blocked_locks.objsubid
+          AND blocking_locks.pid != blocked_locks.pid
+        JOIN pg_catalog.pg_stat_activity blocked_activity ON blocked_activity.pid = blocked_locks.pid
+        WHERE NOT blocked_locks.granted
+      `);
+      for (const row of r.rows) {
+        issues.push({
+          id: `perf-lock-blocked-${row.blocked_pid}`,
+          severity: "warning",
+          category: "performance",
+          title: `Blocked query (PID ${row.blocked_pid} blocked by PID ${row.blocking_pid})`,
+          description: `PID ${row.blocked_pid} is waiting for a lock held by PID ${row.blocking_pid}. Query: ${(row.blocked_query || "").slice(0, 200)}`,
+          fix: `SELECT pg_cancel_backend(${row.blocking_pid});`,
+          impact: "Blocked queries cause cascading delays and potential timeouts.",
+          effort: "quick",
+        });
+      }
+    } catch (err) {
+      console.error("[advisor] Error checking locks:", (err as Error).message);
+    }
+
+    // WAL/replication lag
+    try {
+      const r = await client.query(`
+        SELECT CASE WHEN pg_is_in_recovery()
+          THEN pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
+          ELSE 0 END AS lag_bytes
+      `);
+      const lagBytes = parseInt(r.rows[0]?.lag_bytes ?? "0");
+      if (lagBytes > 1048576) { // > 1MB
+        issues.push({
+          id: `perf-replication-lag`,
+          severity: lagBytes > 104857600 ? "critical" : "warning",
+          category: "performance",
+          title: `Replication lag: ${(lagBytes / 1048576).toFixed(1)} MB`,
+          description: `WAL replay is lagging by ${(lagBytes / 1048576).toFixed(1)} MB. This indicates the replica is falling behind.`,
+          fix: `-- Check replication status:\nSELECT * FROM pg_stat_replication;`,
+          impact: "High replication lag means the replica has stale data and failover may lose transactions.",
+          effort: "involved",
+        });
+      }
+    } catch (err) {
+      console.error("[advisor] Error checking replication lag:", (err as Error).message);
+    }
+
+    // Checkpoint frequency
+    try {
+      const r = await client.query(`
+        SELECT checkpoints_req, checkpoints_timed,
+          CASE WHEN (checkpoints_req + checkpoints_timed) = 0 THEN 0
+            ELSE round(checkpoints_req::numeric / (checkpoints_req + checkpoints_timed) * 100, 1) END AS req_pct
+        FROM pg_stat_bgwriter
+      `);
+      const reqPct = parseFloat(r.rows[0]?.req_pct ?? "0");
+      if (reqPct > 50) {
+        issues.push({
+          id: `maint-checkpoint-frequency`,
+          severity: reqPct > 80 ? "warning" : "info",
+          category: "maintenance",
+          title: `${reqPct}% of checkpoints are requested (not timed)`,
+          description: `${r.rows[0]?.checkpoints_req} requested vs ${r.rows[0]?.checkpoints_timed} timed checkpoints. High requested checkpoints indicate checkpoint_completion_target or max_wal_size may need tuning.`,
+          fix: `-- Increase max_wal_size:\nALTER SYSTEM SET max_wal_size = '2GB';\nSELECT pg_reload_conf();`,
+          impact: "Frequent requested checkpoints cause I/O spikes and degrade performance.",
+          effort: "moderate",
+        });
+      }
+    } catch (err) {
+      console.error("[advisor] Error checking checkpoint frequency:", (err as Error).message);
+    }
+
+    // AutoVACUUM config check
+    try {
+      const r = await client.query(`SELECT setting FROM pg_settings WHERE name = 'autovacuum'`);
+      if (r.rows[0]?.setting === "off") {
+        issues.push({
+          id: `maint-autovacuum-disabled`,
+          severity: "critical",
+          category: "maintenance",
+          title: `Autovacuum is disabled`,
+          description: `Autovacuum is turned off. Dead tuples will accumulate and transaction ID wraparound becomes a risk.`,
+          fix: `ALTER SYSTEM SET autovacuum = on;\nSELECT pg_reload_conf();`,
+          impact: "Without autovacuum, tables bloat indefinitely and risk transaction ID wraparound shutdown.",
+          effort: "quick",
+        });
+      }
+    } catch (err) {
+      console.error("[advisor] Error checking autovacuum:", (err as Error).message);
+    }
+
+    // shared_buffers / work_mem check
+    try {
+      const sbRes = await client.query(`SELECT setting, unit FROM pg_settings WHERE name = 'shared_buffers'`);
+      const memRes = await client.query(`
+        SELECT (SELECT setting::bigint FROM pg_settings WHERE name = 'shared_buffers') *
+               (SELECT setting::bigint FROM pg_settings WHERE name = 'block_size') AS shared_bytes
+      `);
+      const sharedBytes = parseInt(memRes.rows[0]?.shared_bytes ?? "0");
+      // Get total RAM from OS via a simple query (pg doesn't expose this directly, but we can estimate)
+      // We'll compare against a reasonable minimum: if shared_buffers < 128MB, warn
+      if (sharedBytes > 0 && sharedBytes < 128 * 1024 * 1024) {
+        issues.push({
+          id: `perf-shared-buffers-low`,
+          severity: "warning",
+          category: "performance",
+          title: `shared_buffers is only ${(sharedBytes / 1048576).toFixed(0)} MB`,
+          description: `shared_buffers is set to ${sbRes.rows[0]?.setting}${sbRes.rows[0]?.unit || ""}. Recommended: ~25% of system RAM, typically at least 256MB for production.`,
+          fix: `ALTER SYSTEM SET shared_buffers = '256MB';\n-- Requires restart`,
+          impact: "Low shared_buffers means more disk I/O and poor cache hit ratios.",
+          effort: "involved",
+        });
+      }
+    } catch (err) {
+      console.error("[advisor] Error checking shared_buffers:", (err as Error).message);
+    }
+
+    try {
+      const r = await client.query(`SELECT setting, unit FROM pg_settings WHERE name = 'work_mem'`);
+      const workMemKB = parseInt(r.rows[0]?.setting ?? "0");
+      if (workMemKB > 0 && workMemKB < 4096) { // < 4MB
+        issues.push({
+          id: `perf-work-mem-low`,
+          severity: "info",
+          category: "performance",
+          title: `work_mem is only ${workMemKB < 1024 ? workMemKB + "kB" : (workMemKB / 1024).toFixed(0) + "MB"}`,
+          description: `work_mem is ${r.rows[0]?.setting}${r.rows[0]?.unit || ""}. Low work_mem causes sorts and hash operations to spill to disk.`,
+          fix: `ALTER SYSTEM SET work_mem = '16MB';\nSELECT pg_reload_conf();`,
+          impact: "Operations that exceed work_mem use temporary disk files, which is much slower.",
+          effort: "quick",
+        });
+      }
+    } catch (err) {
+      console.error("[advisor] Error checking work_mem:", (err as Error).message);
+    }
+
     // ── Security Advisors ──────────────────────────────────────────
 
     // Superuser connections from non-localhost
@@ -526,18 +678,33 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
 }
 
 // Allowed SQL operations for the fix endpoint
-const ALLOWED_PREFIXES = [
-  "VACUUM",
-  "ANALYZE",
-  "REINDEX",
-  "CREATE INDEX CONCURRENTLY",
-  "DROP INDEX CONCURRENTLY",
-  "SELECT pg_terminate_backend(",
-  "SELECT pg_cancel_backend(",
-  "EXPLAIN ANALYZE",
-];
 
 export function isSafeFix(sql: string): boolean {
-  const trimmed = sql.trim().toUpperCase();
-  return ALLOWED_PREFIXES.some((p) => trimmed.startsWith(p.toUpperCase()));
+  const trimmed = sql.trim();
+  if (!trimmed) return false;
+
+  // Reject multi-statement SQL (split on semicolons, ignore trailing)
+  const statements = trimmed.replace(/;\s*$/, "").split(";").map(s => s.trim()).filter(Boolean);
+  if (statements.length !== 1) return false;
+
+  const upper = statements[0].toUpperCase();
+
+  // EXPLAIN ANALYZE — only allow if followed by SELECT
+  if (upper.startsWith("EXPLAIN ANALYZE")) {
+    const afterExplain = upper.replace(/^EXPLAIN\s+ANALYZE\s+/, "").trimStart();
+    return afterExplain.startsWith("SELECT");
+  }
+
+  // Simple prefix allowlist for single statements
+  const ALLOWED_PREFIXES = [
+    "VACUUM",
+    "ANALYZE",
+    "REINDEX",
+    "CREATE INDEX CONCURRENTLY",
+    "DROP INDEX CONCURRENTLY",
+    "SELECT PG_TERMINATE_BACKEND(",
+    "SELECT PG_CANCEL_BACKEND(",
+  ];
+
+  return ALLOWED_PREFIXES.some((p) => upper.startsWith(p));
 }
