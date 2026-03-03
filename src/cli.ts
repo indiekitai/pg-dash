@@ -119,7 +119,8 @@ if (subcommand === "check") {
 
   const pool = new Pool({ connectionString });
   try {
-    const report = await getAdvisorReport(pool);
+    const lqt = parseInt(values["long-query-threshold"] || process.env.PG_DASH_LONG_QUERY_THRESHOLD || "5", 10);
+    const report = await getAdvisorReport(pool, lqt);
     if (format === "json") {
       console.log(JSON.stringify(report, null, 2));
     } else {

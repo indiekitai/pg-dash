@@ -19,10 +19,14 @@ function getInitialTab(): Tab {
 }
 
 export default function App() {
-  const { data: overview } = useFetch<Overview>("/api/overview");
-  const { data: health } = useFetch<AdvisorResult>("/api/advisor", 60000);
-  const { data: databases } = useFetch<Database[]>("/api/databases", 60000);
-  const { data: tables } = useFetch<TableRow[]>("/api/tables", 60000);
+  const [range, setRange] = useState<Range>("1h");
+  const [tab, setTab] = useState<Tab>(getInitialTab);
+  const [alertCount, setAlertCount] = useState(0);
+
+  const { data: overview } = useFetch<Overview>("/api/overview", 30000, tab !== "overview");
+  const { data: health } = useFetch<AdvisorResult>("/api/advisor", 60000, tab !== "health");
+  const { data: databases } = useFetch<Database[]>("/api/databases", 60000, tab !== "overview");
+  const { data: tables } = useFetch<TableRow[]>("/api/tables", 60000, tab !== "overview");
   const { metrics: liveMetrics, activity: liveActivity, alerts: liveAlerts, connected } = useWebSocket();
   const [alertToast, setAlertToast] = useState<string | null>(null);
 
@@ -36,9 +40,6 @@ export default function App() {
       return () => clearTimeout(t);
     }
   }, [liveAlerts.length]);
-  const [range, setRange] = useState<Range>("1h");
-  const [tab, setTab] = useState<Tab>(getInitialTab);
-  const [alertCount, setAlertCount] = useState(0);
 
   // Sync tab to URL hash
   useEffect(() => {
@@ -73,6 +74,7 @@ export default function App() {
 
   const [sparklines, setSparklines] = useState<Record<string, MetricPoint[]>>({});
   useEffect(() => {
+    if (tab !== "overview") return;
     const load = async () => {
       const keys = ["connections_active", "tps_commit", "cache_hit_ratio", "db_size_bytes"];
       const result: Record<string, MetricPoint[]> = {};
@@ -85,7 +87,7 @@ export default function App() {
     load();
     const iv = setInterval(load, 30000);
     return () => clearInterval(iv);
-  }, []);
+  }, [tab]);
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: "overview", label: "Overview" },

@@ -8,27 +8,22 @@ import { getOverview } from "./queries/overview.js";
 import { getDatabases } from "./queries/databases.js";
 import { getTables } from "./queries/tables.js";
 import { getActivity } from "./queries/activity.js";
-import { getSlowQueries } from "./queries/slow-queries.js";
-import { getAdvisorReport, isSafeFix } from "./advisor.js";
-import { getSchemaTables, getSchemaTableDetail, getSchemaIndexes, getSchemaFunctions, getSchemaExtensions, getSchemaEnums } from "./queries/schema.js";
+import { getAdvisorReport } from "./advisor.js";
 import { TimeseriesStore } from "./timeseries.js";
 import { Collector } from "./collector.js";
 import { SchemaTracker } from "./schema-tracker.js";
 import { AlertManager } from "./alerts.js";
+import { registerOverviewRoutes } from "./routes/overview.js";
+import { registerMetricsRoutes } from "./routes/metrics.js";
+import { registerActivityRoutes } from "./routes/activity.js";
+import { registerAdvisorRoutes } from "./routes/advisor.js";
+import { registerSchemaRoutes } from "./routes/schema.js";
+import { registerAlertsRoutes } from "./routes/alerts.js";
 import Database from "better-sqlite3";
 import { WebSocketServer, WebSocket } from "ws";
 import http from "node:http";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const RANGE_MAP: Record<string, number> = {
-  "5m": 5 * 60 * 1000,
-  "15m": 15 * 60 * 1000,
-  "1h": 60 * 60 * 1000,
-  "6h": 6 * 60 * 60 * 1000,
-  "24h": 24 * 60 * 60 * 1000,
-  "7d": 7 * 24 * 60 * 60 * 1000,
-};
 
 interface ServerOptions {
   connectionString: string;
@@ -41,8 +36,8 @@ interface ServerOptions {
   retentionDays?: number;
   snapshotInterval?: number;
   longQueryThreshold?: number;
-  auth?: string; // user:password
-  token?: string; // bearer token
+  auth?: string;
+  token?: string;
   webhook?: string;
 }
 
@@ -58,12 +53,14 @@ export async function startServer(opts: ServerOptions) {
     process.exit(1);
   }
 
+  const longQueryThreshold = opts.longQueryThreshold || 5;
+
   // JSON mode: dump health and exit
   if (opts.json) {
     try {
       const [overview, advisor, databases, tables] = await Promise.all([
         getOverview(pool),
-        getAdvisorReport(pool),
+        getAdvisorReport(pool, longQueryThreshold),
         getDatabases(pool),
         getTables(pool),
       ]);
@@ -82,7 +79,6 @@ export async function startServer(opts: ServerOptions) {
   // Initialize time-series store and collector
   const store = new TimeseriesStore(opts.dataDir, opts.retentionDays);
   const intervalMs = (opts.interval || 30) * 1000;
-  const longQueryThreshold = opts.longQueryThreshold || 5;
   const collector = new Collector(pool, store, intervalMs);
 
   console.log(`  Collecting metrics every ${(intervalMs / 1000)}s...`);
@@ -106,6 +102,22 @@ export async function startServer(opts: ServerOptions) {
 
   const app = new Hono();
 
+  // Auth endpoint for cookie-based auth (must be before auth middleware)
+  if (opts.token) {
+    app.post("/api/auth", async (c) => {
+      try {
+        const body = await c.req.json();
+        if (body?.token === opts.token) {
+          c.header("Set-Cookie", `pg-dash-token=${opts.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`);
+          return c.json({ ok: true });
+        }
+        return c.json({ error: "Invalid token" }, 401);
+      } catch {
+        return c.json({ error: "Invalid request" }, 400);
+      }
+    });
+  }
+
   // Auth middleware
   if (opts.auth || opts.token) {
     app.use("*", async (c, next) => {
@@ -122,6 +134,13 @@ export async function startServer(opts: ServerOptions) {
       const url = new URL(c.req.url, "http://localhost");
       if (opts.token && url.searchParams.get("token") === opts.token) return next();
 
+      // Check cookie for token auth
+      if (opts.token) {
+        const cookies = c.req.header("cookie") || "";
+        const match = cookies.match(/(?:^|;\s*)pg-dash-token=([^;]*)/);
+        if (match && match[1] === opts.token) return next();
+      }
+
       if (opts.auth) {
         c.header("WWW-Authenticate", 'Basic realm="pg-dash"');
       }
@@ -129,208 +148,13 @@ export async function startServer(opts: ServerOptions) {
     });
   }
 
-  // Phase 0 endpoints
-  app.get("/api/overview", async (c) => {
-    try { return c.json(await getOverview(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/databases", async (c) => {
-    try { return c.json(await getDatabases(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/tables", async (c) => {
-    try { return c.json(await getTables(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  // Phase 1 endpoints
-  app.get("/api/metrics", (c) => {
-    try {
-      const metric = c.req.query("metric");
-      const range = c.req.query("range") || "1h";
-      if (!metric) return c.json({ error: "metric param required" }, 400);
-      const rangeMs = RANGE_MAP[range] || RANGE_MAP["1h"];
-      const now = Date.now();
-      const data = store.query(metric, now - rangeMs, now);
-      return c.json(data);
-    } catch (err: any) {
-      return c.json({ error: err.message }, 500);
-    }
-  });
-
-  app.get("/api/metrics/latest", (_c) => {
-    try {
-      const snapshot = collector.getLastSnapshot();
-      return _c.json(snapshot);
-    } catch (err: any) {
-      return _c.json({ error: err.message }, 500);
-    }
-  });
-
-  app.get("/api/activity", async (c) => {
-    try { return c.json(await getActivity(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/queries", async (c) => {
-    try { return c.json(await getSlowQueries(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.post("/api/activity/:pid/cancel", async (c) => {
-    try {
-      const pid = parseInt(c.req.param("pid"));
-      const client = await pool.connect();
-      try {
-        await client.query("SELECT pg_cancel_backend($1)", [pid]);
-        return c.json({ ok: true });
-      } finally {
-        client.release();
-      }
-    } catch (err: any) {
-      return c.json({ error: err.message }, 500);
-    }
-  });
-
-  // Phase 2 endpoints
-  app.get("/api/advisor", async (c) => {
-    try { return c.json(await getAdvisorReport(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.post("/api/fix", async (c) => {
-    try {
-      const body = await c.req.json();
-      const sql = body?.sql?.trim();
-      if (!sql) return c.json({ error: "sql field required" }, 400);
-      if (!isSafeFix(sql)) return c.json({ error: "Operation not allowed. Only VACUUM, ANALYZE, REINDEX, CREATE/DROP INDEX CONCURRENTLY, pg_terminate_backend, pg_cancel_backend, and EXPLAIN ANALYZE are permitted." }, 403);
-      const client = await pool.connect();
-      try {
-        const start = Date.now();
-        const result = await client.query(sql);
-        const duration = Date.now() - start;
-        return c.json({ ok: true, duration, rowCount: result.rowCount, rows: result.rows || [] });
-      } finally {
-        client.release();
-      }
-    } catch (err: any) {
-      return c.json({ error: err.message }, 500);
-    }
-  });
-
-  app.get("/api/schema/tables", async (c) => {
-    try { return c.json(await getSchemaTables(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/schema/tables/:name", async (c) => {
-    try {
-      const name = c.req.param("name");
-      const detail = await getSchemaTableDetail(pool, name);
-      if (!detail) return c.json({ error: "Table not found" }, 404);
-      return c.json(detail);
-    } catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/schema/indexes", async (c) => {
-    try { return c.json(await getSchemaIndexes(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/schema/functions", async (c) => {
-    try { return c.json(await getSchemaFunctions(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/schema/extensions", async (c) => {
-    try { return c.json(await getSchemaExtensions(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/schema/enums", async (c) => {
-    try { return c.json(await getSchemaEnums(pool)); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  // Phase 3: Schema change tracking endpoints
-  app.get("/api/schema/history", (c) => {
-    try {
-      const limit = parseInt(c.req.query("limit") || "30");
-      return c.json(schemaTracker.getHistory(limit));
-    } catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/schema/changes", (c) => {
-    try {
-      const since = c.req.query("since");
-      return c.json(schemaTracker.getChanges(since ? parseInt(since) : undefined));
-    } catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/schema/changes/latest", (c) => {
-    try { return c.json(schemaTracker.getLatestChanges()); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/schema/diff", (c) => {
-    try {
-      const from = parseInt(c.req.query("from") || "0");
-      const to = parseInt(c.req.query("to") || "0");
-      if (!from || !to) return c.json({ error: "from and to params required" }, 400);
-      const diff = schemaTracker.getDiff(from, to);
-      if (!diff) return c.json({ error: "Snapshot not found" }, 404);
-      return c.json(diff);
-    } catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.post("/api/schema/snapshot", async (c) => {
-    try {
-      const result = await schemaTracker.takeSnapshot();
-      return c.json(result);
-    } catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  // Phase 4: Alerts endpoints
-  app.get("/api/alerts/rules", (c) => {
-    try { return c.json(alertManager.getRules()); }
-    catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.post("/api/alerts/rules", async (c) => {
-    try {
-      const body = await c.req.json();
-      const rule = alertManager.addRule(body);
-      return c.json(rule, 201);
-    } catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.put("/api/alerts/rules/:id", async (c) => {
-    try {
-      const id = parseInt(c.req.param("id"));
-      const body = await c.req.json();
-      const ok = alertManager.updateRule(id, body);
-      if (!ok) return c.json({ error: "Rule not found" }, 404);
-      return c.json({ ok: true });
-    } catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.delete("/api/alerts/rules/:id", (c) => {
-    try {
-      const id = parseInt(c.req.param("id"));
-      const ok = alertManager.deleteRule(id);
-      if (!ok) return c.json({ error: "Rule not found" }, 404);
-      return c.json({ ok: true });
-    } catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
-
-  app.get("/api/alerts/history", (c) => {
-    try {
-      const limit = parseInt(c.req.query("limit") || "50");
-      return c.json(alertManager.getHistory(limit));
-    } catch (err: any) { return c.json({ error: err.message }, 500); }
-  });
+  // Register route modules
+  registerOverviewRoutes(app, pool);
+  registerMetricsRoutes(app, store, collector);
+  registerActivityRoutes(app, pool);
+  registerAdvisorRoutes(app, pool, longQueryThreshold);
+  registerSchemaRoutes(app, pool, schemaTracker);
+  registerAlertsRoutes(app, alertManager);
 
   // Serve frontend
   const uiPath = path.resolve(__dirname, "ui");
@@ -407,6 +231,14 @@ export async function startServer(opts: ServerOptions) {
         const expected = "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
         if (authHeader === expected) return cb(true);
       }
+
+      // Check cookie for token auth
+      if (opts.token) {
+        const cookies = (info.req.headers["cookie"] as string) || "";
+        const match = cookies.match(/(?:^|;\s*)pg-dash-token=([^;]*)/);
+        if (match && match[1] === opts.token) return cb(true);
+      }
+
       cb(false, 401, "Unauthorized");
     } : undefined,
   });
@@ -443,10 +275,8 @@ export async function startServer(opts: ServerOptions) {
     // Check alerts after each collection
     if (Object.keys(snapshot).length > 0) {
       try {
-        // Derive alert metrics from raw snapshot
         const alertMetrics: Record<string, number> = {};
 
-        // Connection utilization (percentage)
         if (snapshot.connections_total !== undefined) {
           const client = await pool.connect();
           try {
@@ -456,12 +286,10 @@ export async function startServer(opts: ServerOptions) {
           } finally { client.release(); }
         }
 
-        // Cache hit ratio as percentage
         if (snapshot.cache_hit_ratio !== undefined) {
           alertMetrics.cache_hit_pct = snapshot.cache_hit_ratio * 100;
         }
 
-        // Long-running queries count
         try {
           const client = await pool.connect();
           try {
@@ -470,28 +298,24 @@ export async function startServer(opts: ServerOptions) {
           } finally { client.release(); }
         } catch (err) { console.error("[alerts] Error checking long queries:", (err as Error).message); }
 
-        // Idle in transaction count
         try {
           const client = await pool.connect();
           try {
-            const r = await client.query("SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'idle in transaction' AND now() - state_change > interval '10 minutes'");
+            const r = await client.query(`SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'idle in transaction' AND now() - state_change > interval '${longQueryThreshold} minutes'`);
             alertMetrics.idle_in_tx_count = r.rows[0]?.c || 0;
           } finally { client.release(); }
         } catch (err) { console.error("[alerts] Error checking idle-in-tx:", (err as Error).message); }
 
-        // Health score (computed less frequently - only if we already have advisor data)
-        // Check on every 10th collection cycle
         collectCycleCount++;
         if (collectCycleCount % 10 === 0) {
           try {
-            const report = await getAdvisorReport(pool);
+            const report = await getAdvisorReport(pool, longQueryThreshold);
             alertMetrics.health_score = report.score;
           } catch (err) { console.error("[alerts] Error checking health score:", (err as Error).message); }
         }
 
         const fired = alertManager.checkAlerts(alertMetrics);
 
-        // Broadcast fired alerts to WebSocket clients
         if (fired.length > 0 && clients.size > 0) {
           const alertMsg = JSON.stringify({ type: "alerts", data: fired });
           for (const ws of clients) {
@@ -537,6 +361,5 @@ export async function startServer(opts: ServerOptions) {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  // Keep process alive
   await new Promise(() => {});
 }

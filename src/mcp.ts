@@ -23,6 +23,7 @@ if (!connString) {
 }
 
 const pool = new Pool({ connectionString: connString });
+const longQueryThreshold = parseInt(process.env.PG_DASH_LONG_QUERY_THRESHOLD || "5", 10);
 const dataDir = process.env.PG_DASH_DATA_DIR || path.join(os.homedir(), ".pg-dash");
 fs.mkdirSync(dataDir, { recursive: true });
 
@@ -51,7 +52,7 @@ server.tool("pg_dash_overview", "Get database overview (version, uptime, size, c
 
 server.tool("pg_dash_health", "Get health advisor report with score, grade, and issues", {}, async () => {
   try {
-    const data = await getAdvisorReport(pool);
+    const data = await getAdvisorReport(pool, longQueryThreshold);
     return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
   } catch (err: any) {
     return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };

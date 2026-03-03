@@ -15,6 +15,22 @@ function createTestApp(opts: { auth?: string; token?: string } = {}) {
     advisor: { score: 85, grade: "B", issues: [], breakdown: {} },
   };
 
+  // Auth endpoint for cookie-based auth
+  if (opts.token) {
+    app.post("/api/auth", async (c) => {
+      try {
+        const body = await c.req.json();
+        if (body?.token === opts.token) {
+          c.header("Set-Cookie", `pg-dash-token=${opts.token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`);
+          return c.json({ ok: true });
+        }
+        return c.json({ error: "Invalid token" }, 401);
+      } catch {
+        return c.json({ error: "Invalid request" }, 400);
+      }
+    });
+  }
+
   // Auth middleware
   if (opts.auth || opts.token) {
     app.use("*", async (c, next) => {
@@ -24,6 +40,12 @@ function createTestApp(opts: { auth?: string; token?: string } = {}) {
         const [user, pass] = opts.auth.split(":");
         const expected = "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
         if (authHeader === expected) return next();
+      }
+      // Check cookie
+      if (opts.token) {
+        const cookies = c.req.header("cookie") || "";
+        const match = cookies.match(/(?:^|;\s*)pg-dash-token=([^;]*)/);
+        if (match && match[1] === opts.token) return next();
       }
       if (opts.auth) c.header("WWW-Authenticate", 'Basic realm="pg-dash"');
       return c.text("Unauthorized", 401);
@@ -180,6 +202,44 @@ describe("Auth middleware", () => {
     const creds = Buffer.from("admin:wrong").toString("base64");
     const res = await app.request("/api/overview", {
       headers: { Authorization: `Basic ${creds}` },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 200 with correct cookie token", async () => {
+    const app = createTestApp({ token: "secret123" });
+    const res = await app.request("/api/overview", {
+      headers: { Cookie: "pg-dash-token=secret123" },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 401 with wrong cookie token", async () => {
+    const app = createTestApp({ token: "secret123" });
+    const res = await app.request("/api/overview", {
+      headers: { Cookie: "pg-dash-token=wrong" },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("POST /api/auth sets cookie with correct token", async () => {
+    const app = createTestApp({ token: "secret123" });
+    const res = await app.request("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "secret123" }),
+    });
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get("set-cookie") || "";
+    expect(setCookie).toContain("pg-dash-token=secret123");
+  });
+
+  it("POST /api/auth returns 401 with wrong token", async () => {
+    const app = createTestApp({ token: "secret123" });
+    const res = await app.request("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "wrong" }),
     });
     expect(res.status).toBe(401);
   });

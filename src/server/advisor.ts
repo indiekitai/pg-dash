@@ -54,7 +54,7 @@ function computeBreakdown(issues: AdvisorIssue[]): Record<string, { score: numbe
   return result;
 }
 
-export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
+export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Promise<AdvisorResult> {
   const client = await pool.connect();
   const issues: AdvisorIssue[] = [];
 
@@ -307,7 +307,7 @@ export async function getAdvisorReport(pool: Pool): Promise<AdvisorResult> {
           extract(epoch from now() - state_change)::int AS idle_seconds
         FROM pg_stat_activity
         WHERE state IN ('idle', 'idle in transaction')
-          AND now() - state_change > interval '10 minutes'
+          AND now() - state_change > interval '${longQueryThreshold} minutes'
           AND pid != pg_backend_pid()
       `);
       for (const row of r.rows) {
