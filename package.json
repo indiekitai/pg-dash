@@ -4,8 +4,8 @@
   "description": "Lightweight PostgreSQL monitoring dashboard",
   "type": "module",
   "bin": {
-    "pg-dash": "./dist/cli.js",
-    "pg-dash-mcp": "./dist/mcp.js"
+    "pg-dash": "dist/cli.js",
+    "pg-dash-mcp": "dist/mcp.js"
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
