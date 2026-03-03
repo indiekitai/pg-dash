@@ -25,7 +25,7 @@ if (!connString) {
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString: connString });
+const pool = new Pool({ connectionString: connString, connectionTimeoutMillis: 10000 });
 const longQueryThreshold = parseInt(process.env.PG_DASH_LONG_QUERY_THRESHOLD || "5", 10);
 const dataDir = process.env.PG_DASH_DATA_DIR || path.join(os.homedir(), ".pg-dash");
 fs.mkdirSync(dataDir, { recursive: true });

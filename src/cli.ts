@@ -133,7 +133,7 @@ if (subcommand === "check") {
   const { saveSnapshot, loadSnapshot, diffSnapshots } = await import("./server/snapshot.js");
   const os = await import("node:os");
 
-  const pool = new Pool({ connectionString });
+  const pool = new Pool({ connectionString, connectionTimeoutMillis: 10000 });
   const checkDataDir = values["data-dir"] || path.join(os.homedir(), ".pg-dash");
   // --snapshot-path lets CI persist the snapshot across ephemeral runners via cache
   const snapshotPath = values["snapshot-path"] || path.join(checkDataDir, "last-check.json");

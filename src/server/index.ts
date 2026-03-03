@@ -49,7 +49,7 @@ interface ServerOptions {
 }
 
 export async function startServer(opts: ServerOptions) {
-  const pool = new Pool({ connectionString: opts.connectionString });
+  const pool = new Pool({ connectionString: opts.connectionString, connectionTimeoutMillis: 10000 });
 
   // Test connection
   try {
