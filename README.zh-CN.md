@@ -2,22 +2,45 @@
 
 # pg-dash
 
-**轻量级 PostgreSQL 监控面板。** 一条命令启动，内置 Web UI，提供可操作的修复建议。
+**AI 原生的 PostgreSQL 健康检查工具。** 一条命令审计数据库，14 个 MCP 工具让 AI 帮你优化，CI 集成自动检查。
 
-可以理解为**给独立开发者的 pganalyze** —— 不需要 Grafana，不需要 Prometheus，不需要 Docker。只需 `npx` 即可运行。
+不是又一个监控面板 —— pg-dash 是为 **AI 编程工作流** 设计的：
+
+```
+开发者写了一个 migration → CI 跑 pg-dash check →
+发现缺失索引 → MCP 工具建议修复 → PR comment
+```
 
 ```bash
-npx @indiekitai/pg-dash postgres://user:pass@host/db
+# 一次性健康检查
+npx @indiekitai/pg-dash check postgres://user:pass@host/db
+
+# AI 助手（Claude/Cursor）通过 MCP 调用
+pg-dash-mcp postgres://user:pass@host/db
+
+# CI 流水线 + 差异对比
+npx @indiekitai/pg-dash check $DATABASE_URL --ci --diff --format md
 ```
+
+## 设计理念
+
+**开发者工具就是用完即走的。** 你不会整天盯着 PostgreSQL 监控面板。你跑一次检查，修掉问题，然后继续干活。pg-dash 就是为此设计的：
+
+- **健康检查** → 发现问题，拿到可执行的 SQL 修复建议，搞定
+- **MCP 工具** → 让 AI 助手直接查询和修复你的数据库（独一份 —— pganalyze/pgwatch 都没有）
+- **CI 集成** → 每次 migration 自动检查，不要等到生产环境出事
+- **智能 diff** → 看到上次以来的变化，追踪改进进度
+
+Dashboard 需要时可以用。但真正的核心能力在 CLI、MCP 和 CI。
 
 ## 为什么选 pg-dash？
 
-| 工具 | 价格 | 部署 | 适合 |
-|------|------|------|------|
-| pganalyze | $149+/月 | SaaS 注册 | 企业 |
-| Grafana+Prometheus | 免费 | 配置 3 个服务 | DevOps 团队 |
-| pgAdmin | 免费 | 界面复杂 | DBA |
-| **pg-dash** | **免费** | **一条命令** | **开发者** |
+| 工具 | 价格 | 部署 | AI 原生 | CI 就绪 |
+|------|------|------|---------|---------|
+| pganalyze | $149+/月 | SaaS 注册 | ❌ | ❌ |
+| Grafana+Prometheus | 免费 | 配置 3 个服务 | ❌ | ❌ |
+| pgAdmin | 免费 | 界面复杂 | ❌ | ❌ |
+| **pg-dash** | **免费** | **一条命令** | **14 个 MCP 工具** | **`--ci --diff`** |
 
 ## 功能
 

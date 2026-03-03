@@ -2,22 +2,45 @@
 
 # pg-dash
 
-**Lightweight PostgreSQL monitoring dashboard.** One command to start, built-in web UI, actionable fix suggestions.
+**The AI-native PostgreSQL health checker.** One command to audit your database, 14 MCP tools for AI-assisted optimization, CI integration for automated checks.
 
-Think **pganalyze for indie devs** — no Grafana, no Prometheus, no Docker. Just `npx` and go.
+Not another monitoring dashboard — pg-dash is built to fit into your **AI coding workflow**:
 
-```bash
-npx @indiekitai/pg-dash postgres://user:pass@host/db
+```
+Developer writes a migration → CI runs pg-dash check →
+Finds missing indexes → MCP tool suggests fix → PR comment
 ```
 
-## Why?
+```bash
+# One-shot health check
+npx @indiekitai/pg-dash check postgres://user:pass@host/db
 
-| Tool | Price | Setup | For |
-|------|-------|-------|-----|
-| pganalyze | $149+/mo | SaaS signup | Enterprises |
-| Grafana+Prometheus | Free | 3 services to configure | DevOps teams |
-| pgAdmin | Free | Complex UI | DBAs |
-| **pg-dash** | **Free** | **One command** | **Developers** |
+# AI assistant (Claude/Cursor) via MCP
+pg-dash-mcp postgres://user:pass@host/db
+
+# CI pipeline with diff
+npx @indiekitai/pg-dash check $DATABASE_URL --ci --diff --format md
+```
+
+## Philosophy
+
+**Developer tools are use-and-go.** You don't stare at a PostgreSQL dashboard all day. You run a check, fix the issues, and move on. pg-dash embraces this:
+
+- **Health check** → Find problems, get actionable SQL fixes, done
+- **MCP tools** → Let your AI assistant query and fix your database directly (unique — pganalyze/pgwatch don't have this)
+- **CI integration** → Catch issues automatically on every migration, not when production is on fire
+- **Smart diff** → See what changed since last run, track your progress
+
+The Dashboard is there when you need it. But the real power is in the CLI, MCP, and CI.
+
+## Why pg-dash?
+
+| Tool | Price | Setup | AI-native | CI-ready |
+|------|-------|-------|-----------|----------|
+| pganalyze | $149+/mo | SaaS signup | ❌ | ❌ |
+| Grafana+Prometheus | Free | 3 services | ❌ | ❌ |
+| pgAdmin | Free | Complex UI | ❌ | ❌ |
+| **pg-dash** | **Free** | **One command** | **14 MCP tools** | **`--ci --diff`** |
 
 ## Features
 
