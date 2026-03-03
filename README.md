@@ -126,7 +126,7 @@ Options:
   -i, --interval <sec>   Collection interval (default: 30)
   --threshold <score>    Score threshold for check command (default: 70)
   -f, --format <fmt>     Output format: text|json (default: text)
-  --query-stats-interval <sec>  Query stats snapshot interval (default: 300)
+  --query-stats-interval <min>  Query stats snapshot interval in minutes (default: 5)
   --slack-webhook <url>  Slack webhook URL for alert notifications
   --discord-webhook <url>  Discord webhook URL for alert notifications
   -v, --version          Show version

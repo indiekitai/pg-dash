@@ -126,7 +126,7 @@ Options:
   -i, --interval <sec>   采集间隔（默认：30）
   --threshold <score>    check 命令的分数阈值（默认：70）
   -f, --format <fmt>     输出格式：text|json（默认：text）
-  --query-stats-interval <sec>  查询统计快照间隔（默认：300）
+  --query-stats-interval <min>  查询统计快照间隔，单位分钟（默认：5）
   --slack-webhook <url>  Slack webhook URL，用于告警通知
   --discord-webhook <url>  Discord webhook URL，用于告警通知
   -v, --version          显示版本
