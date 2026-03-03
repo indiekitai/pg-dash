@@ -288,7 +288,7 @@ jobs:
           mkdir -p .pg-dash-cache
           npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} \
             --ci --diff --snapshot-path ./.pg-dash-cache/last-check.json \
-            --format md > pg-dash-report.md 2>&1
+            --format md > pg-dash-report.md
           echo "exit_code=$?" >> $GITHUB_OUTPUT
         continue-on-error: true
       - name: Save health snapshot

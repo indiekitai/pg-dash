@@ -94,7 +94,7 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 - Configure via `--slack-webhook` or `--discord-webhook`
 
 ### 🤖 MCP Server
-- 8 tools for AI agent integration
+- 14 tools for AI agent integration
 - `pg-dash-mcp postgres://...` — works with Claude, Cursor, etc.
 
 ### 🖥️ CLI
@@ -148,7 +148,7 @@ Options:
   --data-dir <dir>       Data directory (default: ~/.pg-dash)
   -i, --interval <sec>   Collection interval (default: 30)
   --threshold <score>    Score threshold for check command (default: 70)
-  -f, --format <fmt>     Output format: text|json (default: text)
+  -f, --format <fmt>     Output format: text|json|md (default: text)
   --query-stats-interval <min>  Query stats snapshot interval in minutes (default: 5)
   --slack-webhook <url>  Slack webhook URL for alert notifications
   --discord-webhook <url>  Discord webhook URL for alert notifications
@@ -288,7 +288,7 @@ jobs:
           mkdir -p .pg-dash-cache
           npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} \
             --ci --diff --snapshot-path ./.pg-dash-cache/last-check.json \
-            --format md > pg-dash-report.md 2>&1
+            --format md > pg-dash-report.md
           echo "exit_code=$?" >> $GITHUB_OUTPUT
         continue-on-error: true
       - name: Save health snapshot
