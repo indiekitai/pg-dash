@@ -144,7 +144,61 @@ pg-dash-mcp postgres://user:pass@host/db
 PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 ```
 
-可用工具：`pg_dash_overview`、`pg_dash_health`、`pg_dash_tables`、`pg_dash_table_detail`、`pg_dash_activity`、`pg_dash_schema_changes`、`pg_dash_fix`、`pg_dash_alerts`
+### 可用工具（14 个）
+
+| 工具 | 描述 |
+|------|------|
+| `pg_dash_overview` | 数据库概览（版本、运行时间、大小、连接数） |
+| `pg_dash_health` | 健康报告（评分、等级、问题列表） |
+| `pg_dash_tables` | 所有表的大小和行数 |
+| `pg_dash_table_detail` | 单个表的详细信息 |
+| `pg_dash_activity` | 当前活动（查询、连接） |
+| `pg_dash_schema_changes` | 最近的 schema 变更 |
+| `pg_dash_fix` | 执行安全修复（VACUUM、ANALYZE、REINDEX 等） |
+| `pg_dash_alerts` | 告警历史 |
+| `pg_dash_explain` | 对 SELECT 查询运行 EXPLAIN ANALYZE（只读） |
+| `pg_dash_batch_fix` | 获取批量修复 SQL，可按类别过滤 |
+| `pg_dash_slow_queries` | pg_stat_statements 中的慢查询 |
+| `pg_dash_table_sizes` | 表大小（数据/索引拆分，前 30） |
+| `pg_dash_export` | 导出完整健康报告（JSON 或 Markdown） |
+| `pg_dash_diff` | 与上次快照对比当前健康状态 |
+
+## CI 集成
+
+### GitHub Actions
+
+使用 `--ci` 和 `--diff` 标志集成到 CI 流水线：
+
+```bash
+# GitHub Actions 注解（::error::、::warning::）
+pg-dash check postgres://... --ci
+
+# 适合 PR 评论的 Markdown 报告
+pg-dash check postgres://... --ci --format md
+
+# 与上次运行对比
+pg-dash check postgres://... --diff
+
+# 全部组合
+pg-dash check postgres://... --ci --diff --format md
+```
+
+示例工作流（`.github/workflows/pg-check.yml`）：
+
+```yaml
+name: Database Health Check
+on:
+  push:
+    paths: ['migrations/**', 'prisma/**', 'drizzle/**']
+  schedule:
+    - cron: '0 8 * * 1'  # 每周一早 8 点
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} --ci --diff --format md
+```
 
 ## 健康检查
 

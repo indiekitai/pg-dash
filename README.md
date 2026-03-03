@@ -144,7 +144,61 @@ pg-dash-mcp postgres://user:pass@host/db
 PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 ```
 
-Available tools: `pg_dash_overview`, `pg_dash_health`, `pg_dash_tables`, `pg_dash_table_detail`, `pg_dash_activity`, `pg_dash_schema_changes`, `pg_dash_fix`, `pg_dash_alerts`
+### Available Tools (14)
+
+| Tool | Description |
+|------|-------------|
+| `pg_dash_overview` | Database overview (version, uptime, size, connections) |
+| `pg_dash_health` | Health advisor report with score, grade, and issues |
+| `pg_dash_tables` | List all tables with sizes and row counts |
+| `pg_dash_table_detail` | Detailed info about a specific table |
+| `pg_dash_activity` | Current database activity (active queries, connections) |
+| `pg_dash_schema_changes` | Recent schema changes |
+| `pg_dash_fix` | Execute a safe fix (VACUUM, ANALYZE, REINDEX, etc.) |
+| `pg_dash_alerts` | Alert history |
+| `pg_dash_explain` | Run EXPLAIN ANALYZE on a SELECT query (read-only) |
+| `pg_dash_batch_fix` | Get batch fix SQL for issues, optionally filtered by category |
+| `pg_dash_slow_queries` | Top slow queries from pg_stat_statements |
+| `pg_dash_table_sizes` | Table sizes with data/index breakdown (top 30) |
+| `pg_dash_export` | Export full health report (JSON or Markdown) |
+| `pg_dash_diff` | Compare current health with last saved snapshot |
+
+## CI Integration
+
+### GitHub Actions
+
+Add `--ci` and `--diff` flags to integrate with CI pipelines:
+
+```bash
+# GitHub Actions annotations (::error::, ::warning::)
+pg-dash check postgres://... --ci
+
+# Markdown report for PR comments
+pg-dash check postgres://... --ci --format md
+
+# Compare with previous run
+pg-dash check postgres://... --diff
+
+# All together
+pg-dash check postgres://... --ci --diff --format md
+```
+
+Sample workflow (`.github/workflows/pg-check.yml`):
+
+```yaml
+name: Database Health Check
+on:
+  push:
+    paths: ['migrations/**', 'prisma/**', 'drizzle/**']
+  schedule:
+    - cron: '0 8 * * 1'  # Weekly Monday 8am
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx @indiekitai/pg-dash check ${{ secrets.DATABASE_URL }} --ci --diff --format md
+```
 
 ## Health Checks
 

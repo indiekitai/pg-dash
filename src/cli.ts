@@ -38,6 +38,8 @@ const { values, positionals } = parseArgs({
     version: { type: "boolean", short: "v" },
     threshold: { type: "string" },
     format: { type: "string", short: "f" },
+    ci: { type: "boolean", default: false },
+    diff: { type: "boolean", default: false },
   },
 });
 
@@ -85,6 +87,8 @@ Options:
   --long-query-threshold <min> Long query threshold in minutes (default: 5)
   --threshold <score>    Health score threshold for check command (default: 70)
   -f, --format <fmt>     Output format: text|json|md (default: text)
+  --ci                   Output GitHub Actions compatible annotations
+  --diff                 Compare with previous run (saves to ~/.pg-dash/last-check.json)
   -v, --version          Show version
   -h, --help             Show this help
 
@@ -119,38 +123,114 @@ if (subcommand === "check") {
   const connectionString = resolveConnectionString(1);
   const threshold = parseInt(values.threshold || "70", 10);
   const format = values.format || "text";
+  const ci = values.ci || false;
+  const useDiff = values.diff || false;
 
   const { Pool } = await import("pg");
   const { getAdvisorReport } = await import("./server/advisor.js");
+  const { saveSnapshot, loadSnapshot, diffSnapshots } = await import("./server/snapshot.js");
+  const os = await import("node:os");
 
   const pool = new Pool({ connectionString });
+  const checkDataDir = values["data-dir"] || path.join(os.homedir(), ".pg-dash");
+
   try {
     const lqt = parseInt(values["long-query-threshold"] || process.env.PG_DASH_LONG_QUERY_THRESHOLD || "5", 10);
     const report = await getAdvisorReport(pool, lqt);
+
+    // Diff logic
+    let diff: import("./server/snapshot.js").SnapshotDiff | null = null;
+    if (useDiff) {
+      const prev = loadSnapshot(checkDataDir);
+      if (prev) {
+        diff = diffSnapshots(prev.result, report);
+      }
+      saveSnapshot(checkDataDir, report);
+    }
+
     if (format === "json") {
-      console.log(JSON.stringify(report, null, 2));
-    } else if (format === "md") {
-      console.log(`# pg-dash Health Report\n`);
-      console.log(`Generated: ${new Date().toISOString()}\n`);
-      console.log(`## Health Score: ${report.score}/100 (Grade: ${report.grade})\n`);
-      console.log(`| Category | Grade | Score | Issues |`);
+      const output: any = { ...report };
+      if (diff) output.diff = diff;
+      console.log(JSON.stringify(output, null, 2));
+    } else if (format === "md" || (ci && format !== "text")) {
+      // Markdown report (for CI PR comments)
+      console.log(`## 🏥 pg-dash Health Report\n`);
+      if (diff) {
+        const sign = diff.scoreDelta >= 0 ? "+" : "";
+        console.log(`**Score: ${diff.previousScore} → ${report.score} (${sign}${diff.scoreDelta})**\n`);
+      } else {
+        console.log(`**Score: ${report.score}/100 (${report.grade})**\n`);
+      }
+      console.log(`| Category | Score | Grade | Issues |`);
       console.log(`|----------|-------|-------|--------|`);
       for (const [cat, b] of Object.entries(report.breakdown)) {
-        console.log(`| ${cat} | ${b.grade} | ${b.score}/100 | ${b.count} |`);
+        console.log(`| ${cat} | ${b.score} | ${b.grade} | ${b.count} |`);
+      }
+      if (diff) {
+        if (diff.resolvedIssues.length > 0) {
+          console.log(`\n### ✅ Resolved (${diff.resolvedIssues.length})`);
+          for (const i of diff.resolvedIssues) console.log(`- ~~${i.title}~~`);
+        }
+        if (diff.newIssues.length > 0) {
+          console.log(`\n### 🆕 New Issues (${diff.newIssues.length})`);
+          for (const i of diff.newIssues) {
+            const icon = i.severity === "critical" ? "🔴" : i.severity === "warning" ? "🟡" : "🔵";
+            console.log(`- ${icon} [${i.severity}] ${i.title}`);
+          }
+        }
       }
       if (report.issues.length > 0) {
-        console.log(`\n### Issues (${report.issues.length})\n`);
+        console.log(`\n### ⚠️ Issues (${report.issues.length})\n`);
         for (const issue of report.issues) {
-          const icon = issue.severity === "critical" ? "🔴" : issue.severity === "warning" ? "🟡" : "🔵";
-          console.log(`#### ${icon} [${issue.severity}] ${issue.title}\n`);
-          console.log(`${issue.description}\n`);
-          console.log(`**Fix**:\n\`\`\`sql\n${issue.fix}\n\`\`\`\n`);
+          const sev = issue.severity === "critical" ? "error" : issue.severity === "warning" ? "warning" : "notice";
+          console.log(`- [${sev}] ${issue.title}`);
         }
       } else {
         console.log(`\n✅ No issues found!`);
       }
+      if (report.batchFixes.length > 0) {
+        console.log(`\n### 🔧 Batch Fixes\n`);
+        console.log("```sql");
+        for (const fix of report.batchFixes) {
+          console.log(`-- ${fix.title}`);
+          console.log(fix.sql);
+        }
+        console.log("```");
+      }
+    } else if (ci) {
+      // GitHub Actions annotations
+      for (const issue of report.issues) {
+        const level = issue.severity === "critical" ? "error" : issue.severity === "warning" ? "warning" : "notice";
+        console.log(`::${level}::${issue.title}: ${issue.description}`);
+      }
+      // Summary table
+      console.log(`\nHealth Score: ${report.score}/100 (${report.grade})`);
+      for (const [cat, b] of Object.entries(report.breakdown)) {
+        console.log(`  ${cat.padEnd(14)} ${b.grade} (${b.score}/100) — ${b.count} issue${b.count !== 1 ? "s" : ""}`);
+      }
+      if (diff) {
+        const sign = diff.scoreDelta >= 0 ? "+" : "";
+        console.log(`\nScore: ${diff.previousScore} → ${report.score} (${sign}${diff.scoreDelta})`);
+        console.log(`Resolved: ${diff.resolvedIssues.length} issues`);
+        console.log(`New: ${diff.newIssues.length} issues`);
+      }
     } else {
-      console.log(`\n  Health Score: ${report.score}/100 (Grade: ${report.grade})\n`);
+      // Plain text
+      if (diff) {
+        const sign = diff.scoreDelta >= 0 ? "+" : "";
+        console.log(`\n  Score: ${diff.previousScore} → ${report.score} (${sign}${diff.scoreDelta})\n`);
+        if (diff.resolvedIssues.length > 0) {
+          console.log(`  ✅ Resolved: ${diff.resolvedIssues.length} issues`);
+          for (const i of diff.resolvedIssues) console.log(`     - ${i.title}`);
+        }
+        if (diff.newIssues.length > 0) {
+          console.log(`  🆕 New: ${diff.newIssues.length} issues`);
+          for (const i of diff.newIssues) console.log(`     - ${i.title}`);
+        }
+        console.log();
+      } else {
+        console.log(`\n  Health Score: ${report.score}/100 (Grade: ${report.grade})\n`);
+      }
       for (const [cat, b] of Object.entries(report.breakdown)) {
         console.log(`  ${cat.padEnd(14)} ${b.grade} (${b.score}/100) — ${b.count} issue${b.count !== 1 ? "s" : ""}`);
       }
