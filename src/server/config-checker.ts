@@ -102,7 +102,7 @@ export async function getConfigReport(pool: Pool): Promise<ConfigReport> {
     if (mb <= 4) {
       recommendations.push({
         setting: "work_mem",
-        currentValue: "4MB",
+        currentValue: `${mb % 1 === 0 ? mb : mb.toFixed(1)}MB`,
         recommendedValue: "16MB",
         reason: "work_mem of 4MB is conservative; consider 16MB–64MB for analytical queries (but multiply by max_connections for total)",
         severity: "info",
@@ -207,7 +207,7 @@ export async function getConfigReport(pool: Pool): Promise<ConfigReport> {
     if (mb <= 64) {
       recommendations.push({
         setting: "maintenance_work_mem",
-        currentValue: "64MB",
+        currentValue: `${mb % 1 === 0 ? mb : mb.toFixed(1)}MB`,
         recommendedValue: "256MB",
         reason: "Consider 256MB for faster VACUUM and index builds",
         severity: "info",
@@ -217,6 +217,21 @@ export async function getConfigReport(pool: Pool): Promise<ConfigReport> {
   }
 
   const maxConnSetting = get("max_connections");
+
+  // max_connections > 200 without connection pooler is a common perf trap
+  if (maxConnSetting !== null) {
+    const maxConn = parseInt(maxConnSetting, 10);
+    if (maxConn > 200) {
+      recommendations.push({
+        setting: "max_connections",
+        currentValue: String(maxConn),
+        recommendedValue: "100",
+        reason: `max_connections=${maxConn} is high. Each connection uses ~5–10MB RAM. Without a connection pooler (PgBouncer), this leads to memory pressure and context-switch overhead. Consider lowering to 100 and using a pooler.`,
+        severity: "warning",
+        docs: "https://www.postgresql.org/docs/current/runtime-config-connection.html#GUC-MAX-CONNECTIONS",
+      });
+    }
+  }
 
   const serverInfo = {
     maxConnections: maxConnSetting !== null ? parseInt(maxConnSetting, 10) : 0,

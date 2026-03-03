@@ -53,7 +53,22 @@ export async function getUnusedIndexes(pool: Pool): Promise<UnusedIndexReport> {
     ? new Date(bgwriterResult.rows[0].stats_reset).toISOString()
     : null;
 
-  const indexes: UnusedIndex[] = indexResult.rows.map((row: any) => {
+  const filteredRows = indexResult.rows.filter((row: any) => {
+    const def: string = row.indexdef ?? "";
+    // Exclude partial indexes (have WHERE clause)
+    if (def.includes(" WHERE ")) return false;
+    // Exclude expression indexes: column list has nested parens e.g. lower(email)
+    // Extract the column portion between the first ( and last )
+    const colStart = def.indexOf("(");
+    const colEnd = def.lastIndexOf(")");
+    if (colStart !== -1 && colEnd !== -1) {
+      const cols = def.slice(colStart + 1, colEnd);
+      if (cols.includes("(")) return false; // expression index
+    }
+    return true;
+  });
+
+  const indexes: UnusedIndex[] = filteredRows.map((row: any) => {
     const sizeBytes = parseInt(row.index_size_bytes, 10) || 0;
     const index = row.index_name as string;
     const table = row.table_name as string;

@@ -193,4 +193,62 @@ describe("getConfigReport", () => {
     // Should have no recommendations since base settings are all fine
     expect(report.recommendations).toHaveLength(0);
   });
+
+  // --- Fix 1: work_mem currentValue is not hardcoded ---
+
+  it("work_mem = 3MB recommendation has currentValue '3MB' (not hardcoded '4MB')", async () => {
+    const pool = makePool(settingsWith({ work_mem: "3" })); // 3MB, unit MB
+    const report = await getConfigReport(pool as any);
+    const rec = report.recommendations.find((r) => r.setting === "work_mem");
+    expect(rec).toBeDefined();
+    expect(rec?.currentValue).toBe("3MB");
+  });
+
+  it("work_mem = 2MB recommendation has currentValue '2MB'", async () => {
+    const pool = makePool(settingsWith({ work_mem: "2" }));
+    const report = await getConfigReport(pool as any);
+    const rec = report.recommendations.find((r) => r.setting === "work_mem");
+    expect(rec).toBeDefined();
+    expect(rec?.currentValue).toBe("2MB");
+  });
+
+  it("maintenance_work_mem = 32MB recommendation has currentValue '32MB' (not hardcoded '64MB')", async () => {
+    const pool = makePool(settingsWith({ maintenance_work_mem: "32" })); // 32MB, unit MB
+    const report = await getConfigReport(pool as any);
+    const rec = report.recommendations.find((r) => r.setting === "maintenance_work_mem");
+    expect(rec).toBeDefined();
+    expect(rec?.currentValue).toBe("32MB");
+  });
+
+  // --- Fix 2: max_connections check ---
+
+  it("max_connections = 300 adds a recommendation with severity 'warning'", async () => {
+    const pool = makePool(settingsWith({ max_connections: "300" }));
+    const report = await getConfigReport(pool as any);
+    const rec = report.recommendations.find((r) => r.setting === "max_connections");
+    expect(rec).toBeDefined();
+    expect(rec?.severity).toBe("warning");
+  });
+
+  it("max_connections = 300 recommendation has currentValue '300'", async () => {
+    const pool = makePool(settingsWith({ max_connections: "300" }));
+    const report = await getConfigReport(pool as any);
+    const rec = report.recommendations.find((r) => r.setting === "max_connections");
+    expect(rec).toBeDefined();
+    expect(rec?.currentValue).toBe("300");
+  });
+
+  it("max_connections = 100 does NOT add a recommendation", async () => {
+    const pool = makePool(baseSettings()); // max_connections = 100
+    const report = await getConfigReport(pool as any);
+    const rec = report.recommendations.find((r) => r.setting === "max_connections");
+    expect(rec).toBeUndefined();
+  });
+
+  it("max_connections = 200 does NOT add a recommendation (threshold is > 200, not >= 200)", async () => {
+    const pool = makePool(settingsWith({ max_connections: "200" }));
+    const report = await getConfigReport(pool as any);
+    const rec = report.recommendations.find((r) => r.setting === "max_connections");
+    expect(rec).toBeUndefined();
+  });
 });

@@ -114,4 +114,52 @@ describe("getUnusedIndexes", () => {
     const report = await getUnusedIndexes(pool as any);
     expect(report.indexes[0].lastUsed).toBe(new Date(statsResetTime).toISOString());
   });
+
+  // --- Fix 3: exclude partial and expression indexes ---
+
+  it("excludes partial indexes (indexdef contains WHERE clause)", async () => {
+    const pool = makePool([
+      {
+        schemaname: "public",
+        table_name: "orders",
+        index_name: "idx_orders_pending",
+        index_size_bytes: "1024",
+        idx_scan: "0",
+        indexdef: "CREATE INDEX idx_orders_pending ON public.orders (status) WHERE status = 'active'",
+      },
+    ]);
+    const report = await getUnusedIndexes(pool as any);
+    expect(report.indexes).toHaveLength(0);
+  });
+
+  it("excludes expression indexes (indexdef contains nested parens e.g. lower(email))", async () => {
+    const pool = makePool([
+      {
+        schemaname: "public",
+        table_name: "users",
+        index_name: "idx_users_lower_email",
+        index_size_bytes: "2048",
+        idx_scan: "0",
+        indexdef: "CREATE INDEX idx_users_lower_email ON public.users (lower(email))",
+      },
+    ]);
+    const report = await getUnusedIndexes(pool as any);
+    expect(report.indexes).toHaveLength(0);
+  });
+
+  it("includes normal indexes (no WHERE clause and no expression)", async () => {
+    const pool = makePool([
+      {
+        schemaname: "public",
+        table_name: "orders",
+        index_name: "idx_orders_user_id",
+        index_size_bytes: "4096",
+        idx_scan: "0",
+        indexdef: "CREATE INDEX idx_orders_user_id ON public.orders (user_id)",
+      },
+    ]);
+    const report = await getUnusedIndexes(pool as any);
+    expect(report.indexes).toHaveLength(1);
+    expect(report.indexes[0].index).toBe("idx_orders_user_id");
+  });
 });
