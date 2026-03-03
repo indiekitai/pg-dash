@@ -1,3 +1,5 @@
+[English](README.md) | [中文](README.zh-CN.md)
+
 # pg-dash
 
 **Lightweight PostgreSQL monitoring dashboard.** One command to start, built-in web UI, actionable fix suggestions.
