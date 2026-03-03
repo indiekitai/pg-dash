@@ -277,9 +277,7 @@ export async function startServer(opts: ServerOptions) {
 
   // Broadcast metrics, activity, and check alerts on each collection
   let collectCycleCount = 0;
-  const origCollect = collector.collect.bind(collector);
-  collector.collect = async () => {
-    const snapshot = await origCollect();
+  collector.on("collected", async (snapshot: Record<string, number>) => {
     if (clients.size > 0 && Object.keys(snapshot).length > 0) {
       const metricsMsg = JSON.stringify({ type: "metrics", data: snapshot });
       let activityData: any[] = [];
@@ -371,9 +369,7 @@ export async function startServer(opts: ServerOptions) {
         console.error("[alerts] Error checking alerts:", (err as Error).message);
       }
     }
-
-    return snapshot;
-  };
+  });
 
   const bindAddr = opts.bind || "127.0.0.1";
   server.listen(opts.port, bindAddr, async () => {

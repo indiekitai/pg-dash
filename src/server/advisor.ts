@@ -307,9 +307,9 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
           extract(epoch from now() - state_change)::int AS idle_seconds
         FROM pg_stat_activity
         WHERE state IN ('idle', 'idle in transaction')
-          AND now() - state_change > interval '${longQueryThreshold} minutes'
+          AND now() - state_change > $1 * interval '1 minute'
           AND pid != pg_backend_pid()
-      `);
+      `, [longQueryThreshold]);
       for (const row of r.rows) {
         const isIdleTx = row.state === "idle in transaction";
         issues.push({

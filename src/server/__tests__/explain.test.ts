@@ -62,6 +62,39 @@ describe("explain endpoint", () => {
     expect(calls.some(c => c.includes("EXPLAIN"))).toBe(true);
   });
 
+  it("rejects non-SELECT queries (DELETE/UPDATE/INSERT)", async () => {
+    const app = new Hono();
+    registerExplainRoutes(app, makeMockPool());
+
+    for (const stmt of [
+      "DELETE FROM users WHERE id = 1",
+      "UPDATE users SET name = 'x'",
+      "INSERT INTO users VALUES (1)",
+      "delete from users",
+      "WITH cte AS (DELETE FROM users RETURNING *) SELECT * FROM cte",
+    ]) {
+      const res = await app.request("/api/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: stmt }),
+      });
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toContain("Only SELECT");
+    }
+  });
+
+  it("allows SELECT queries", async () => {
+    const app = new Hono();
+    registerExplainRoutes(app, makeMockPool());
+    const res = await app.request("/api/explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "select * from users" }),
+    });
+    expect(res.status).toBe(200);
+  });
+
   it("allows case-insensitive DDL detection", async () => {
     const app = new Hono();
     registerExplainRoutes(app, makeMockPool());

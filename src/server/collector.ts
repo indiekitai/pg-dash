@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import type { Pool } from "pg";
 import type { TimeseriesStore } from "./timeseries.js";
 
@@ -31,7 +32,7 @@ interface CumulativeState {
   tup_deleted: number;
 }
 
-export class Collector {
+export class Collector extends EventEmitter {
   private timer: ReturnType<typeof setInterval> | null = null;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private prev: CumulativeState | null = null;
@@ -41,7 +42,9 @@ export class Collector {
     private pool: Pool,
     private store: TimeseriesStore,
     private intervalMs: number = 30000
-  ) {}
+  ) {
+    super();
+  }
 
   start(): void {
     this.collect().catch(err => console.error("[collector] Initial collection failed:", err));
@@ -173,6 +176,7 @@ export class Collector {
     }
 
     this.lastSnapshot = snapshot;
+    this.emit("collected", snapshot);
     return snapshot;
   }
 }

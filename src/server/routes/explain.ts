@@ -10,6 +10,7 @@ export function registerExplainRoutes(app: Hono, pool: Pool) {
       const query = body?.query?.trim();
       if (!query) return c.json({ error: "Missing query" }, 400);
       if (DDL_PATTERN.test(query)) return c.json({ error: "DDL statements are not allowed" }, 400);
+      if (!/^\s*SELECT\b/i.test(query)) return c.json({ error: "Only SELECT queries can be explained for safety. DELETE/UPDATE/INSERT are blocked." }, 400);
 
       const client = await pool.connect();
       try {
