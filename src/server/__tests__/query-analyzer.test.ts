@@ -264,3 +264,75 @@ describe("detectQueryRegressions", () => {
     expect(regressions).toHaveLength(0);
   });
 });
+
+// ─── Composite index suggestions ─────────────────────────────────────────────
+
+describe("analyzeExplainPlan — composite index suggestions", () => {
+  it("suggests composite index for two-column filter (not two separate indexes)", async () => {
+    const json = makeExplainJson(
+      seqScanNode({ table: "orders", planRows: 50_000, filter: "(user_id = $1 AND status = $2)" })
+    );
+    const analysis = await analyzeExplainPlan(json, null);
+
+    expect(analysis.missingIndexes).toHaveLength(1);
+    const suggestion = analysis.missingIndexes[0];
+    expect(suggestion.table).toBe("orders");
+    expect(suggestion.columns).toHaveLength(2);
+    expect(suggestion.columns).toContain("user_id");
+    expect(suggestion.columns).toContain("status");
+    expect(suggestion.sql).toMatch(/user_id, status|status, user_id/);
+    expect(suggestion.reason).toContain("composite index preferred");
+  });
+
+  it("suggests composite index for three-column filter", async () => {
+    const json = makeExplainJson(
+      seqScanNode({
+        table: "events",
+        planRows: 200_000,
+        filter: "(tenant_id = $1 AND event_type = $2 AND created_at > $3)",
+      })
+    );
+    const analysis = await analyzeExplainPlan(json, null);
+
+    expect(analysis.missingIndexes).toHaveLength(1);
+    expect(analysis.missingIndexes[0].columns.length).toBeGreaterThanOrEqual(2);
+    expect(analysis.missingIndexes[0].reason).toContain("composite index preferred");
+  });
+
+  it("composite covers only uncovered columns when one is already indexed", async () => {
+    // user_id is already the leading column of an existing index; status is not
+    const mockPool = {
+      query: vi.fn().mockResolvedValue({
+        rows: [{ indexdef: "CREATE INDEX idx_orders_user_id ON orders (user_id)" }],
+      }),
+    } as any;
+
+    const json = makeExplainJson(
+      seqScanNode({ table: "orders", planRows: 80_000, filter: "(user_id = $1 AND status = $2)" })
+    );
+    const analysis = await analyzeExplainPlan(json, mockPool);
+
+    // Only status is uncovered → single column suggestion (not composite)
+    expect(analysis.missingIndexes).toHaveLength(1);
+    expect(analysis.missingIndexes[0].columns).toEqual(["status"]);
+    expect(analysis.missingIndexes[0].reason).not.toContain("composite");
+  });
+
+  it("no suggestion when all filter columns are already indexed", async () => {
+    const mockPool = {
+      query: vi.fn().mockResolvedValue({
+        rows: [
+          { indexdef: "CREATE INDEX idx_orders_user_id ON orders (user_id)" },
+          { indexdef: "CREATE INDEX idx_orders_status ON orders (status)" },
+        ],
+      }),
+    } as any;
+
+    const json = makeExplainJson(
+      seqScanNode({ table: "orders", planRows: 80_000, filter: "(user_id = $1 AND status = $2)" })
+    );
+    const analysis = await analyzeExplainPlan(json, mockPool);
+
+    expect(analysis.missingIndexes).toHaveLength(0);
+  });
+});

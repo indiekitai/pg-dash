@@ -26,7 +26,7 @@ const colRow = (
   is_nullable = "NO",
   column_default: string | null = null
 ) => ({ table_name, column_name, data_type, is_nullable, column_default });
-const idxRow = (tablename: string, indexname: string) => ({ tablename, indexname });
+const idxRow = (tablename: string, indexname: string, indexdef = `CREATE INDEX ${indexname} ON ${tablename} (col)`) => ({ tablename, indexname, indexdef });
 
 // Helpers to identify the query type from its SQL snippet
 function isTables(sql: string) { return sql.includes("information_schema.tables"); }
@@ -332,6 +332,8 @@ function makeDiffResult(overrides: Partial<EnvDiffResult> = {}): EnvDiffResult {
           missingColumns: [{ name: "updated_at", type: "timestamp", nullable: false }],
           extraColumns: [],
           typeDiffs: [],
+          nullableDiffs: [],
+          defaultDiffs: [],
         },
       ],
       indexDiffs: [
@@ -339,6 +341,7 @@ function makeDiffResult(overrides: Partial<EnvDiffResult> = {}): EnvDiffResult {
           table: "favorites",
           missingIndexes: [],
           extraIndexes: ["idx_favorites_extra"],
+          modifiedIndexes: [],
         },
       ],
     },
@@ -434,5 +437,151 @@ describe("formatMdDiff", () => {
     const output = formatMdDiff(result);
     expect(output).toContain("**Result:");
     expect(output).toContain("NOT in sync");
+  });
+});
+
+// ── New tests: nullable diff, default diff, modified index ────────────────────
+
+describe("diffEnvironments — nullable drift", () => {
+  it("detects nullable drift (source NOT NULL, target nullable)", async () => {
+    const srcHandler = makeSchemaHandler(
+      ["users"],
+      [colRow("users", "email", "text", "NO")],  // NOT NULL
+      []
+    );
+    const tgtHandler = makeSchemaHandler(
+      ["users"],
+      [colRow("users", "email", "text", "YES")], // nullable
+      []
+    );
+
+    const result = await runDiff(srcHandler, tgtHandler);
+
+    const diff = result.schema.columnDiffs.find((d) => d.table === "users");
+    expect(diff).toBeDefined();
+    expect(diff!.nullableDiffs).toHaveLength(1);
+    expect(diff!.nullableDiffs[0].column).toBe("email");
+    expect(diff!.nullableDiffs[0].sourceNullable).toBe(false);
+    expect(diff!.nullableDiffs[0].targetNullable).toBe(true);
+    expect(result.summary.schemaDrifts).toBe(1);
+    expect(result.summary.identical).toBe(false);
+  });
+
+  it("no nullable drift when both are the same", async () => {
+    const handler = makeSchemaHandler(
+      ["users"],
+      [colRow("users", "email", "text", "NO")],
+      []
+    );
+
+    const result = await runDiff(handler, handler);
+
+    expect(result.summary.identical).toBe(true);
+    expect(result.schema.columnDiffs).toHaveLength(0);
+  });
+});
+
+describe("diffEnvironments — default drift", () => {
+  it("detects default drift (different defaults)", async () => {
+    const srcHandler = makeSchemaHandler(
+      ["users"],
+      [colRow("users", "created_at", "timestamp", "YES", "now()")],
+      []
+    );
+    const tgtHandler = makeSchemaHandler(
+      ["users"],
+      [colRow("users", "created_at", "timestamp", "YES", null)],
+      []
+    );
+
+    const result = await runDiff(srcHandler, tgtHandler);
+
+    const diff = result.schema.columnDiffs.find((d) => d.table === "users");
+    expect(diff).toBeDefined();
+    expect(diff!.defaultDiffs).toHaveLength(1);
+    expect(diff!.defaultDiffs[0].column).toBe("created_at");
+    expect(diff!.defaultDiffs[0].sourceDefault).toBe("now()");
+    expect(diff!.defaultDiffs[0].targetDefault).toBeNull();
+    expect(result.summary.schemaDrifts).toBe(1);
+  });
+
+  it("no default drift when both columns have the same default", async () => {
+    const handler = makeSchemaHandler(
+      ["users"],
+      [colRow("users", "created_at", "timestamp", "YES", "now()")],
+      []
+    );
+
+    const result = await runDiff(handler, handler);
+
+    expect(result.summary.identical).toBe(true);
+    expect(result.schema.columnDiffs).toHaveLength(0);
+  });
+});
+
+describe("diffEnvironments — modified index (same name, different definition)", () => {
+  it("detects modified index when definitions differ", async () => {
+    const srcHandler = makeSchemaHandler(
+      ["users"],
+      [colRow("users", "id", "bigint")],
+      [idxRow("users", "idx_users_email", "CREATE INDEX idx_users_email ON users (email)")]
+    );
+    const tgtHandler = makeSchemaHandler(
+      ["users"],
+      [colRow("users", "id", "bigint")],
+      [idxRow("users", "idx_users_email", "CREATE INDEX idx_users_email ON users (email, created_at)")]
+    );
+
+    const result = await runDiff(srcHandler, tgtHandler);
+
+    expect(result.schema.indexDiffs).toHaveLength(1);
+    const idxDiff = result.schema.indexDiffs[0];
+    expect(idxDiff.modifiedIndexes).toHaveLength(1);
+    expect(idxDiff.modifiedIndexes[0].name).toBe("idx_users_email");
+    expect(idxDiff.modifiedIndexes[0].sourceDef).toBe("CREATE INDEX idx_users_email ON users (email)");
+    expect(idxDiff.modifiedIndexes[0].targetDef).toBe("CREATE INDEX idx_users_email ON users (email, created_at)");
+    expect(result.summary.schemaDrifts).toBe(1);
+    expect(result.summary.identical).toBe(false);
+  });
+
+  it("modifiedIndexes count is included in schemaDrifts", async () => {
+    const srcHandler = makeSchemaHandler(
+      ["orders"],
+      [colRow("orders", "id", "bigint")],
+      [
+        idxRow("orders", "idx_orders_a", "CREATE INDEX idx_orders_a ON orders (a)"),
+        idxRow("orders", "idx_orders_b", "CREATE INDEX idx_orders_b ON orders (b)"),
+      ]
+    );
+    const tgtHandler = makeSchemaHandler(
+      ["orders"],
+      [colRow("orders", "id", "bigint")],
+      [
+        idxRow("orders", "idx_orders_a", "CREATE INDEX idx_orders_a ON orders (a, b)"), // modified
+        idxRow("orders", "idx_orders_b", "CREATE INDEX idx_orders_b ON orders (b)"),    // same
+      ]
+    );
+
+    const result = await runDiff(srcHandler, tgtHandler);
+
+    expect(result.summary.schemaDrifts).toBe(1); // only idx_orders_a
+    const idxDiff = result.schema.indexDiffs.find((d) => d.table === "orders");
+    expect(idxDiff!.modifiedIndexes).toHaveLength(1);
+    expect(idxDiff!.missingIndexes).toHaveLength(0);
+    expect(idxDiff!.extraIndexes).toHaveLength(0);
+  });
+
+  it("no modified indexes when definitions are identical", async () => {
+    const def = "CREATE INDEX idx_users_email ON users (email)";
+    const handler = makeSchemaHandler(
+      ["users"],
+      [colRow("users", "id", "bigint")],
+      [idxRow("users", "idx_users_email", def)]
+    );
+
+    const result = await runDiff(handler, handler);
+
+    expect(result.summary.identical).toBe(true);
+    expect(result.schema.indexDiffs).toHaveLength(0);
   });
 });

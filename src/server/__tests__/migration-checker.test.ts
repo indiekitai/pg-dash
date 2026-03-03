@@ -345,3 +345,65 @@ describe("formatMarkdown output", () => {
     expect(output).toContain("🔴 ERROR");
   });
 });
+
+// ─── RENAME TABLE / RENAME COLUMN checks ─────────────────────────────────────
+
+describe("analyzeMigration — RENAME TABLE / RENAME COLUMN", () => {
+  it("warns on RENAME TABLE", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users RENAME TO accounts;"
+    );
+    const issue = result.issues.find((i) => i.code === "RENAME_TABLE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+    expect(issue!.message).toContain('"users"');
+    expect(issue!.message).toContain('"accounts"');
+    expect(issue!.tableName).toBe("users");
+    expect(issue!.suggestion).toContain("view");
+  });
+
+  it("warns on RENAME COLUMN", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users RENAME COLUMN email TO email_address;"
+    );
+    const issue = result.issues.find((i) => i.code === "RENAME_COLUMN");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+    expect(issue!.message).toContain('"email"');
+    expect(issue!.message).toContain('"email_address"');
+    expect(issue!.message).toContain('"users"');
+    expect(issue!.tableName).toBe("users");
+    expect(issue!.suggestion).toContain("expand/contract");
+  });
+
+  it("detects both RENAME TABLE and RENAME COLUMN in the same migration", async () => {
+    const sql = `
+      ALTER TABLE users RENAME TO accounts;
+      ALTER TABLE accounts RENAME COLUMN email TO email_address;
+    `;
+    const result = await analyzeMigration(sql);
+    const renameTable = result.issues.find((i) => i.code === "RENAME_TABLE");
+    const renameColumn = result.issues.find((i) => i.code === "RENAME_COLUMN");
+    expect(renameTable).toBeDefined();
+    expect(renameColumn).toBeDefined();
+  });
+
+  it("RENAME TABLE on newly created table is still a warning (app code may reference old name)", async () => {
+    const sql = `
+      CREATE TABLE foo (id SERIAL PRIMARY KEY, name TEXT);
+      ALTER TABLE foo RENAME TO bar;
+    `;
+    const result = await analyzeMigration(sql);
+    const issue = result.issues.find((i) => i.code === "RENAME_TABLE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+  });
+
+  it("RENAME TABLE does not produce RENAME_COLUMN false positive", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users RENAME TO accounts;"
+    );
+    const renameColumn = result.issues.find((i) => i.code === "RENAME_COLUMN");
+    expect(renameColumn).toBeUndefined();
+  });
+});

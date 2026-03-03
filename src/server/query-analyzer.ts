@@ -218,17 +218,31 @@ export async function analyzeExplainPlan(
       existingIndexCols = await getExistingIndexColumns(pool, scan.table);
     }
 
-    for (const col of cols) {
-      // Is this column already covered by an index?
-      const alreadyCovered = existingIndexCols.some((idxCols) =>
-        idxCols.length > 0 && idxCols[0] === col
-      );
-      if (alreadyCovered) continue;
+    // Filter out columns already covered as the leading column of an existing index
+    const uncoveredCols = cols.filter(
+      (col) => !existingIndexCols.some((idxCols) => idxCols.length > 0 && idxCols[0] === col)
+    );
 
-      const benefit = rateBenefit(scan.rowCount);
+    if (uncoveredCols.length === 0) continue;
+
+    const benefit = rateBenefit(scan.rowCount);
+
+    if (uncoveredCols.length >= 2) {
+      // Suggest a composite index
+      const idxName = `idx_${scan.table}_${uncoveredCols.join("_")}`;
+      const sql = `CREATE INDEX CONCURRENTLY ${idxName} ON ${scan.table} (${uncoveredCols.join(", ")})`;
+      result.missingIndexes.push({
+        table: scan.table,
+        columns: uncoveredCols,
+        reason: `Seq Scan with multi-column filter (${uncoveredCols.join(", ")}) on ${fmtRows(scan.rowCount)} rows — composite index preferred`,
+        sql,
+        estimatedBenefit: benefit,
+      });
+    } else {
+      // Single column
+      const col = uncoveredCols[0];
       const idxName = `idx_${scan.table}_${col}`;
       const sql = `CREATE INDEX CONCURRENTLY ${idxName} ON ${scan.table} (${col})`;
-
       result.missingIndexes.push({
         table: scan.table,
         columns: [col],

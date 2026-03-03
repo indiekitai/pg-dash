@@ -196,7 +196,38 @@ function staticCheck(sql: string): MigrationIssue[] {
     });
   }
 
-  // 5d. ADD CONSTRAINT without NOT VALID — performs a full table scan to validate
+  // 5d-i. RENAME TABLE
+  const renameTableRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(\w+)\s+RENAME\s+TO\s+(\w+)/gi;
+  while ((m = renameTableRe.exec(sql)) !== null) {
+    const oldName = m[1];
+    const newName = m[2];
+    issues.push({
+      severity: "warning",
+      code: "RENAME_TABLE",
+      message: `Renaming table "${oldName}" to "${newName}" breaks application code referencing the old name`,
+      suggestion: "Deploy application code that handles both names before renaming, or use a view with the old name after renaming.",
+      lineNumber: findLineNumber(sql, m.index),
+      tableName: oldName,
+    });
+  }
+
+  // 5d-ii. RENAME COLUMN
+  const renameColumnRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(\w+)\s+RENAME\s+COLUMN\s+(\w+)\s+TO\s+(\w+)/gi;
+  while ((m = renameColumnRe.exec(sql)) !== null) {
+    const table = m[1];
+    const oldCol = m[2];
+    const newCol = m[3];
+    issues.push({
+      severity: "warning",
+      code: "RENAME_COLUMN",
+      message: `Renaming column "${oldCol}" to "${newCol}" on table "${table}" breaks application code referencing the old column name`,
+      suggestion: "Add new column, backfill data, update application to use new column, then drop old column (expand/contract pattern).",
+      lineNumber: findLineNumber(sql, m.index),
+      tableName: table,
+    });
+  }
+
+  // 5e. ADD CONSTRAINT without NOT VALID — performs a full table scan to validate
   const addConRe = /\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([\w."]+)\s+ADD\s+CONSTRAINT\b[^;]*(;|$)/gi;
   while ((m = addConRe.exec(sql)) !== null) {
     const fragment = m[0];
