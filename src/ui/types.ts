@@ -184,4 +184,6 @@ export const ALERT_METRICS = [
   { value: "long_query_count", label: "Long-Running Queries" },
   { value: "idle_in_tx_count", label: "Idle in Transaction" },
   { value: "health_score", label: "Health Score" },
+  { value: "db_growth_pct_24h", label: "DB Growth in 24h (%)" },
+  { value: "days_until_full", label: "Days Until Disk Full" },
 ];

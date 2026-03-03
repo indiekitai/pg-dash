@@ -52,6 +52,24 @@ npx @indiekitai/pg-dash postgres://user:pass@host/db
 - Webhook notifications
 - Alert history
 
+### 🔍 EXPLAIN Plan Visualization
+- Click any query in the Queries tab to see its execution plan
+- Tree view of the EXPLAIN output for easy analysis
+
+### 📈 Query Time-Series Trends
+- Trends tab with historical pg_stat_statements snapshots
+- Track query performance over time
+
+### 💾 Disk Space Monitoring
+- Disk tab with per-table size breakdown
+- Growth prediction using linear regression
+- "Days until disk full" estimate
+
+### 📣 Slack & Discord Notifications
+- Webhook notifications for alerts
+- Auto-detects Slack vs Discord webhook URLs
+- Configure via `--slack-webhook` or `--discord-webhook`
+
 ### 🤖 MCP Server
 - 8 tools for AI agent integration
 - `pg-dash-mcp postgres://...` — works with Claude, Cursor, etc.
@@ -108,6 +126,9 @@ Options:
   -i, --interval <sec>   Collection interval (default: 30)
   --threshold <score>    Score threshold for check command (default: 70)
   -f, --format <fmt>     Output format: text|json (default: text)
+  --query-stats-interval <sec>  Query stats snapshot interval (default: 300)
+  --slack-webhook <url>  Slack webhook URL for alert notifications
+  --discord-webhook <url>  Discord webhook URL for alert notifications
   -v, --version          Show version
 ```
 

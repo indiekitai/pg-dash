@@ -5,9 +5,13 @@ export function formatTime(ts: number) {
 }
 
 export function formatBytes(bytes: number) {
-  if (bytes > 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
-  if (bytes > 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  return `${(bytes / 1e3).toFixed(0)} KB`;
+  if (bytes === 0) return "0 B";
+  const sign = bytes < 0 ? "-" : "";
+  const abs = Math.abs(bytes);
+  if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(1)} GB`;
+  if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(1)} MB`;
+  if (abs >= 1e3) return `${sign}${(abs / 1e3).toFixed(1)} KB`;
+  return `${sign}${abs} B`;
 }
 
 export function mergeTimeSeries(data: Record<string, MetricPoint[]>, keys: string[]) {

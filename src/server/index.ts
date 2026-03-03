@@ -60,6 +60,7 @@ export async function startServer(opts: ServerOptions) {
   }
 
   const longQueryThreshold = opts.longQueryThreshold || 5;
+  const diskPredictor = new DiskPredictor();
 
   // JSON mode: dump health and exit
   if (opts.json) {
@@ -313,7 +314,7 @@ export async function startServer(opts: ServerOptions) {
         try {
           const client = await pool.connect();
           try {
-            const r = await client.query(`SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'active' AND now() - query_start > interval '${longQueryThreshold} minutes' AND pid != pg_backend_pid()`);
+            const r = await client.query(`SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'active' AND now() - query_start > $1 * interval '1 minute' AND pid != pg_backend_pid()`, [longQueryThreshold]);
             alertMetrics.long_query_count = r.rows[0]?.c || 0;
           } finally { client.release(); }
         } catch (err) { console.error("[alerts] Error checking long queries:", (err as Error).message); }
@@ -321,7 +322,7 @@ export async function startServer(opts: ServerOptions) {
         try {
           const client = await pool.connect();
           try {
-            const r = await client.query(`SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'idle in transaction' AND now() - state_change > interval '${longQueryThreshold} minutes'`);
+            const r = await client.query(`SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'idle in transaction' AND now() - state_change > $1 * interval '1 minute'`, [longQueryThreshold]);
             alertMetrics.idle_in_tx_count = r.rows[0]?.c || 0;
           } finally { client.release(); }
         } catch (err) { console.error("[alerts] Error checking idle-in-tx:", (err as Error).message); }
@@ -349,7 +350,6 @@ export async function startServer(opts: ServerOptions) {
 
           // days_until_full
           try {
-            const diskPredictor = new DiskPredictor();
             const pred = diskPredictor.predict(store, "db_size_bytes", 30);
             if (pred?.daysUntilFull !== null && pred?.daysUntilFull !== undefined) {
               alertMetrics.days_until_full = pred.daysUntilFull;

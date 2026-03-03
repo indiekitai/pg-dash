@@ -45,6 +45,7 @@ export class QueryStatsStore {
   private retentionMs: number;
   private prev: Map<string, CumulativeRow> = new Map();
   private timer: ReturnType<typeof setInterval> | null = null;
+  private pruneTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(db: Database.Database, retentionDays = DEFAULT_RETENTION_DAYS) {
     this.db = db;
@@ -83,13 +84,17 @@ export class QueryStatsStore {
       );
     }, intervalMs);
     // Prune once per hour
-    setInterval(() => this.prune(), 60 * 60 * 1000);
+    this.pruneTimer = setInterval(() => this.prune(), 60 * 60 * 1000);
   }
 
   stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    if (this.pruneTimer) {
+      clearInterval(this.pruneTimer);
+      this.pruneTimer = null;
     }
   }
 

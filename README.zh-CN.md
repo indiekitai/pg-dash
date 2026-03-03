@@ -52,6 +52,24 @@ npx @indiekitai/pg-dash postgres://user:pass@host/db
 - Webhook 通知
 - 告警历史
 
+### 🔍 EXPLAIN 执行计划可视化
+- 在 Queries 标签页点击任意查询查看执行计划
+- 树形展示 EXPLAIN 输出，便于分析
+
+### 📈 查询趋势分析
+- Trends 标签页展示 pg_stat_statements 历史快照
+- 追踪查询性能随时间的变化
+
+### 💾 磁盘空间监控
+- Disk 标签页展示每张表的大小分布
+- 基于线性回归的增长预测
+- "距磁盘满还有多少天" 估算
+
+### 📣 Slack 和 Discord 通知
+- 告警 Webhook 通知
+- 自动识别 Slack / Discord webhook URL
+- 通过 `--slack-webhook` 或 `--discord-webhook` 配置
+
 ### 🤖 MCP Server
 - 8 个工具，支持 AI Agent 集成
 - `pg-dash-mcp postgres://...` —— 可配合 Claude、Cursor 等使用
@@ -108,6 +126,9 @@ Options:
   -i, --interval <sec>   采集间隔（默认：30）
   --threshold <score>    check 命令的分数阈值（默认：70）
   -f, --format <fmt>     输出格式：text|json（默认：text）
+  --query-stats-interval <sec>  查询统计快照间隔（默认：300）
+  --slack-webhook <url>  Slack webhook URL，用于告警通知
+  --discord-webhook <url>  Discord webhook URL，用于告警通知
   -v, --version          显示版本
 ```
 

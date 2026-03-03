@@ -13,7 +13,9 @@ import { getAdvisorReport, isSafeFix } from "./server/advisor.js";
 import Database from "better-sqlite3";
 import path from "node:path";
 import os from "node:os";
-import fs from "node:fs";
+import fs, { readFileSync } from "node:fs";
+
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8"));
 
 const connString = process.argv[2] || process.env.PG_DASH_CONNECTION_STRING;
 if (!connString) {
@@ -39,7 +41,7 @@ try {
   if (fs.existsSync(alertsPath)) alertsDb = new Database(alertsPath, { readonly: true });
 } catch (err) { console.error("[mcp] Error:", (err as Error).message); }
 
-const server = new McpServer({ name: "pg-dash", version: "0.1.0" });
+const server = new McpServer({ name: "pg-dash", version: pkg.version });
 
 server.tool("pg_dash_overview", "Get database overview (version, uptime, size, connections)", {}, async () => {
   try {

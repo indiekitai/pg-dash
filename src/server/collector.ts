@@ -33,6 +33,7 @@ interface CumulativeState {
 
 export class Collector {
   private timer: ReturnType<typeof setInterval> | null = null;
+  private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private prev: CumulativeState | null = null;
   private lastSnapshot: Record<string, number> = {};
 
@@ -48,13 +49,17 @@ export class Collector {
       this.collect().catch(err => console.error("[collector] Collection failed:", err));
     }, this.intervalMs);
     // Prune once per hour
-    setInterval(() => this.store.prune(), 60 * 60 * 1000);
+    this.pruneTimer = setInterval(() => this.store.prune(), 60 * 60 * 1000);
   }
 
   stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    if (this.pruneTimer) {
+      clearInterval(this.pruneTimer);
+      this.pruneTimer = null;
     }
   }
 
