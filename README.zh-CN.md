@@ -2,18 +2,25 @@
 
 # pg-dash
 
-**AI 原生的 PostgreSQL 健康检查工具。** 一条命令审计数据库，14 个 MCP 工具让 AI 帮你优化，CI 集成自动检查。
+**AI 原生的 PostgreSQL 健康检查工具。** 一条命令审计数据库，18 个 MCP 工具让 AI 帮你优化，CI 集成自动检查。
 
 不是又一个监控面板 —— pg-dash 是为 **AI 编程工作流** 设计的：
 
 ```
-开发者写了一个 migration → CI 跑 pg-dash check →
-发现缺失索引 → MCP 工具建议修复 → PR comment
+开发者写了一个 migration → pg-dash check-migration（执行前检查）→
+CI 跑 pg-dash check → 发现缺失索引 →
+MCP 工具建议修复 → PR comment
 ```
 
 ```bash
 # 一次性健康检查
 npx @indiekitai/pg-dash check postgres://user:pass@host/db
+
+# 执行 migration 前检查风险
+npx @indiekitai/pg-dash check-migration ./migrations/015_add_index.sql
+
+# 对比两个环境（本地 vs 预发）
+npx @indiekitai/pg-dash diff-env --source postgres://localhost/db --target postgres://staging/db
 
 # AI 助手（Claude/Cursor）通过 MCP 调用
 pg-dash-mcp postgres://user:pass@host/db
@@ -40,7 +47,7 @@ Dashboard 需要时可以用。但真正的核心能力在 CLI、MCP 和 CI。
 | pganalyze | $149+/月 | SaaS 注册 | ❌ | ❌ |
 | Grafana+Prometheus | 免费 | 配置 3 个服务 | ❌ | ❌ |
 | pgAdmin | 免费 | 界面复杂 | ❌ | ❌ |
-| **pg-dash** | **免费** | **一条命令** | **14 个 MCP 工具** | **`--ci --diff`** |
+| **pg-dash** | **免费** | **一条命令** | **18 个 MCP 工具** | **`--ci --diff`** |
 
 ## 功能
 
@@ -93,8 +100,25 @@ Dashboard 需要时可以用。但真正的核心能力在 CLI、MCP 和 CI。
 - 自动识别 Slack / Discord webhook URL
 - 通过 `--slack-webhook` 或 `--discord-webhook` 配置
 
+### 🛡️ Migration 安全检查
+- 执行迁移前分析 SQL 文件的风险
+- 检测：`CREATE INDEX`（无 `CONCURRENTLY` 会锁表）、`ADD COLUMN NOT NULL`（无 DEFAULT 会失败）、`DROP TABLE`、`TRUNCATE`、无 WHERE 的 `DELETE`/`UPDATE`
+- 动态检查：连接数据库验证被引用表是否存在，根据实际行数估算锁表时间
+- CI 友好：`--ci` 输出 `::error::` / `::warning::` GitHub Actions 注解
+
+### 🧠 查询智能诊断
+- `pg_dash_analyze_query` —— 运行 `EXPLAIN ANALYZE`，检测大表的 Seq Scan，自动生成带 benefit 评级的 `CREATE INDEX CONCURRENTLY` 建议
+- `pg_dash_query_regressions` —— 找出比历史基线慢超过 50% 的查询（需要 `pg_stat_statements`）
+- 面板 EXPLAIN 弹窗内联展示索引建议
+
+### 🔄 多环境对比
+- 对比两个 PostgreSQL 环境的 Schema 和健康状态（本地 vs 预发、预发 vs 生产）
+- 检测：缺失/多余的表、缺失/多余的列、列类型不匹配、缺失/多余的索引
+- `--health` 参数额外对比健康分和各环境独有的问题
+- `pg_dash_compare_env` MCP 工具：直接问 AI "本地和预发有什么差异？"
+
 ### 🤖 MCP Server
-- 8 个工具，支持 AI Agent 集成
+- 18 个工具，支持 AI Agent 集成
 - `pg-dash-mcp postgres://...` —— 可配合 Claude、Cursor 等使用
 
 ### 🖥️ CLI
@@ -106,11 +130,16 @@ pg-dash postgres://user:pass@host/db
 pg-dash check postgres://user:pass@host/db
 pg-dash check postgres://... --format json --threshold 70
 
+# Migration 安全检查
+pg-dash check-migration ./migrations/015_add_index.sql
+pg-dash check-migration ./migrations/015_add_index.sql postgres://... --ci
+
+# 多环境 Schema 对比
+pg-dash diff-env --source postgres://localhost/db --target postgres://staging/db
+pg-dash diff-env --source postgres://... --target postgres://... --health --format md
+
 # Schema 变更
 pg-dash schema-diff postgres://user:pass@host/db
-
-# JSON 输出
-pg-dash postgres://... --json
 ```
 
 ## 快速开始
@@ -132,9 +161,11 @@ pg-dash --host localhost --user postgres --db mydb --port 3480
 ## CLI 参数
 
 ```
-pg-dash <connection-string>          启动面板
-pg-dash check <connection-string>    运行健康检查并退出
-pg-dash schema-diff <connection-string>  显示 Schema 变更
+pg-dash <connection-string>                      启动面板
+pg-dash check <connection-string>                运行健康检查并退出
+pg-dash check-migration <file> [conn]            检查 migration SQL 的风险
+pg-dash diff-env --source <url> --target <url>   对比两个环境
+pg-dash schema-diff <connection-string>          显示 Schema 变更
 
 Options:
   -p, --port <port>      面板端口（默认：3480）
@@ -148,10 +179,14 @@ Options:
   --data-dir <dir>       数据目录（默认：~/.pg-dash）
   -i, --interval <sec>   采集间隔（默认：30）
   --threshold <score>    check 命令的分数阈值（默认：70）
-  -f, --format <fmt>     输出格式：text|json（默认：text）
+  -f, --format <fmt>     输出格式：text|json|md（默认：text）
   --query-stats-interval <min>  查询统计快照间隔，单位分钟（默认：5）
   --slack-webhook <url>  Slack webhook URL，用于告警通知
   --discord-webhook <url>  Discord webhook URL，用于告警通知
+  --ci                   输出 GitHub Actions 注解（check、check-migration、diff-env）
+  --diff                 与上次快照对比（check 命令）
+  --snapshot-path <path> --diff 使用的快照文件路径
+  --health               包含健康对比（diff-env）
   -v, --version          显示版本
 ```
 
@@ -167,7 +202,7 @@ pg-dash-mcp postgres://user:pass@host/db
 PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 ```
 
-### 可用工具（14 个）
+### 可用工具（18 个）
 
 | 工具 | 描述 |
 |------|------|
@@ -185,6 +220,10 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 | `pg_dash_table_sizes` | 表大小（数据/索引拆分，前 30） |
 | `pg_dash_export` | 导出完整健康报告（JSON 或 Markdown） |
 | `pg_dash_diff` | 与上次快照对比当前健康状态 |
+| `pg_dash_check_migration` | 分析 migration SQL 的锁表风险、缺失表、破坏性操作 |
+| `pg_dash_analyze_query` | 深度 EXPLAIN 分析，自动生成索引建议 |
+| `pg_dash_query_regressions` | 检测比历史基线慢超过 50% 的查询 |
+| `pg_dash_compare_env` | 对比两个数据库环境的 Schema 和健康状态 |
 
 ## MCP 配置
 

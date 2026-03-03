@@ -2,18 +2,25 @@
 
 # pg-dash
 
-**The AI-native PostgreSQL health checker.** One command to audit your database, 14 MCP tools for AI-assisted optimization, CI integration for automated checks.
+**The AI-native PostgreSQL health checker.** One command to audit your database, 18 MCP tools for AI-assisted optimization, CI integration for automated checks.
 
 Not another monitoring dashboard — pg-dash is built to fit into your **AI coding workflow**:
 
 ```
-Developer writes a migration → CI runs pg-dash check →
-Finds missing indexes → MCP tool suggests fix → PR comment
+Developer writes a migration → pg-dash check-migration (pre-flight) →
+CI runs pg-dash check → Finds missing indexes →
+MCP tool suggests fix → PR comment
 ```
 
 ```bash
 # One-shot health check
 npx @indiekitai/pg-dash check postgres://user:pass@host/db
+
+# Check migration safety before running it
+npx @indiekitai/pg-dash check-migration ./migrations/015_add_index.sql
+
+# Compare two environments (local vs staging)
+npx @indiekitai/pg-dash diff-env --source postgres://localhost/db --target postgres://staging/db
 
 # AI assistant (Claude/Cursor) via MCP
 pg-dash-mcp postgres://user:pass@host/db
@@ -40,7 +47,7 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 | pganalyze | $149+/mo | SaaS signup | ❌ | ❌ |
 | Grafana+Prometheus | Free | 3 services | ❌ | ❌ |
 | pgAdmin | Free | Complex UI | ❌ | ❌ |
-| **pg-dash** | **Free** | **One command** | **14 MCP tools** | **`--ci --diff`** |
+| **pg-dash** | **Free** | **One command** | **18 MCP tools** | **`--ci --diff`** |
 
 ## Features
 
@@ -93,8 +100,25 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 - Auto-detects Slack vs Discord webhook URLs
 - Configure via `--slack-webhook` or `--discord-webhook`
 
+### 🛡️ Migration Safety Check
+- Analyze a migration SQL file for risks before running it
+- Detects: `CREATE INDEX` without `CONCURRENTLY` (lock risk), `ADD COLUMN NOT NULL` without `DEFAULT`, `DROP TABLE`, `TRUNCATE`, `DELETE`/`UPDATE` without `WHERE`
+- Dynamic checks: connects to DB to verify referenced tables exist, estimates lock time based on actual row counts
+- CI-ready: `--ci` flag emits `::error::` / `::warning::` GitHub Actions annotations
+
+### 🧠 Query Intelligence
+- `pg_dash_analyze_query` — runs `EXPLAIN ANALYZE`, detects Seq Scans on large tables, auto-generates `CREATE INDEX CONCURRENTLY` suggestions with benefit ratings
+- `pg_dash_query_regressions` — finds queries that got >50% slower vs historical baseline (requires `pg_stat_statements`)
+- EXPLAIN Modal in dashboard shows index suggestions inline
+
+### 🔄 Multi-Env Diff
+- Compare schema and health between two PostgreSQL environments (local vs staging, staging vs prod)
+- Detects: missing/extra tables, missing/extra columns, column type mismatches, missing/extra indexes
+- `--health` flag adds health score comparison and unique issues per environment
+- `pg_dash_compare_env` MCP tool: ask your AI "what's different between local and staging?"
+
 ### 🤖 MCP Server
-- 14 tools for AI agent integration
+- 18 tools for AI agent integration
 - `pg-dash-mcp postgres://...` — works with Claude, Cursor, etc.
 
 ### 🖥️ CLI
@@ -106,11 +130,16 @@ pg-dash postgres://user:pass@host/db
 pg-dash check postgres://user:pass@host/db
 pg-dash check postgres://... --format json --threshold 70
 
+# Migration safety check
+pg-dash check-migration ./migrations/015_add_index.sql
+pg-dash check-migration ./migrations/015_add_index.sql postgres://... --ci
+
+# Multi-env schema diff
+pg-dash diff-env --source postgres://localhost/db --target postgres://staging/db
+pg-dash diff-env --source postgres://... --target postgres://... --health --format md
+
 # Schema changes
 pg-dash schema-diff postgres://user:pass@host/db
-
-# JSON dump
-pg-dash postgres://... --json
 ```
 
 ## Quick Start
@@ -132,9 +161,11 @@ Opens your browser at `http://localhost:3480` with the full dashboard.
 ## CLI Options
 
 ```
-pg-dash <connection-string>          Start dashboard
-pg-dash check <connection-string>    Run health check and exit
-pg-dash schema-diff <connection-string>  Show schema changes
+pg-dash <connection-string>               Start dashboard
+pg-dash check <connection-string>         Run health check and exit
+pg-dash check-migration <file> [conn]     Analyze migration SQL for risks
+pg-dash diff-env --source <url> --target <url>  Compare two environments
+pg-dash schema-diff <connection-string>   Show schema changes
 
 Options:
   -p, --port <port>      Dashboard port (default: 3480)
@@ -152,6 +183,10 @@ Options:
   --query-stats-interval <min>  Query stats snapshot interval in minutes (default: 5)
   --slack-webhook <url>  Slack webhook URL for alert notifications
   --discord-webhook <url>  Discord webhook URL for alert notifications
+  --ci                   Output GitHub Actions annotations (check, check-migration, diff-env)
+  --diff                 Compare with last snapshot (check command)
+  --snapshot-path <path> Path to snapshot file for --diff
+  --health               Include health comparison (diff-env)
   -v, --version          Show version
 ```
 
@@ -167,7 +202,7 @@ pg-dash-mcp postgres://user:pass@host/db
 PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 ```
 
-### Available Tools (14)
+### Available Tools (18)
 
 | Tool | Description |
 |------|-------------|
@@ -185,6 +220,10 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 | `pg_dash_table_sizes` | Table sizes with data/index breakdown (top 30) |
 | `pg_dash_export` | Export full health report (JSON or Markdown) |
 | `pg_dash_diff` | Compare current health with last saved snapshot |
+| `pg_dash_check_migration` | Analyze migration SQL for lock risks, missing tables, destructive ops |
+| `pg_dash_analyze_query` | Deep EXPLAIN analysis with automatic index suggestions |
+| `pg_dash_query_regressions` | Detect queries that degraded >50% vs historical baseline |
+| `pg_dash_compare_env` | Compare schema and health between two database environments |
 
 ## MCP Setup
 
