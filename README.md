@@ -117,6 +117,13 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 - `--health` flag adds health score comparison and unique issues per environment
 - `pg_dash_compare_env` MCP tool: ask your AI "what's different between local and staging?"
 
+### 🔧 Production Readiness Audit
+- **Unused indexes** — Find indexes with 0 scans since last stats reset; suggests safe `DROP INDEX CONCURRENTLY` SQL
+- **Table bloat** — Dead tuple ratio per table (≥10%); surfaces both `last_autovacuum` and `last_vacuum` timestamps
+- **Autovacuum health** — Classifies each table as `ok` / `stale` / `overdue` / `never`; shows autovacuum settings with units
+- **Lock monitoring** — Active lock-wait chains (who is blocking whom) + long-running queries >5s
+- **Config recommendations** — Audits `shared_buffers`, `work_mem`, `checkpoint_completion_target`, `random_page_cost`, `idle_in_transaction_session_timeout`, and 5 more settings with severity-tagged recommendations
+
 ### 🤖 MCP Server
 - 23 tools for AI agent integration
 - `pg-dash-mcp postgres://...` — works with Claude, Cursor, etc.

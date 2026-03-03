@@ -117,6 +117,13 @@ Dashboard 需要时可以用。但真正的核心能力在 CLI、MCP 和 CI。
 - `--health` 参数额外对比健康分和各环境独有的问题
 - `pg_dash_compare_env` MCP 工具：直接问 AI "本地和预发有什么差异？"
 
+### 🔧 生产就绪审计
+- **废弃索引检测** — 找出从未被使用（0 次扫描）的索引，自动生成带引号的 `DROP INDEX CONCURRENTLY` SQL
+- **表膨胀检测** — 统计每张表的 dead tuple 比例（≥10% 才展示），同时显示 `last_autovacuum` 和 `last_vacuum` 时间戳
+- **Autovacuum 健康** — 将每张表分类为 `ok` / `stale` / `overdue` / `never`，展示带单位的 autovacuum 配置
+- **锁监控** — 活跃的锁等待链（谁在阻塞谁）+ 超过 5 秒的长查询
+- **配置建议** — 审计 `shared_buffers`、`work_mem`、`checkpoint_completion_target`、`random_page_cost`、`idle_in_transaction_session_timeout` 等 10 项配置，给出带严重级别的调优建议
+
 ### 🤖 MCP Server
 - 23 个工具，支持 AI Agent 集成
 - `pg-dash-mcp postgres://...` —— 可配合 Claude、Cursor 等使用
