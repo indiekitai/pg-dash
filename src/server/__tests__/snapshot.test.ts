@@ -81,10 +81,10 @@ describe("diffSnapshots", () => {
     expect(diff.scoreDelta).toBe(15);
   });
 
-  it("normalizes dynamic IDs — idle connection PID changes don't cause noise", () => {
-    // Simulate idle connection issue with PID that changes between runs
-    const prev = makeResult(80, [{ id: "maint-idle-12345", title: "Idle connection PID 12345" }]);
-    const curr = makeResult(80, [{ id: "maint-idle-99999", title: "Idle connection PID 99999" }]);
+  it("normalizes dynamic IDs — idle-in-transaction PID changes don't cause noise", () => {
+    // Simulate idle-in-transaction issue with PID that changes between runs
+    const prev = makeResult(80, [{ id: "maint-idle-tx-12345", title: "Idle-in-transaction connection PID 12345" }]);
+    const curr = makeResult(80, [{ id: "maint-idle-tx-99999", title: "Idle-in-transaction connection PID 99999" }]);
     const diff = diffSnapshots(prev, curr);
     // Should be treated as unchanged, not new+resolved
     expect(diff.newIssues).toHaveLength(0);

@@ -322,32 +322,47 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
       console.error("[advisor] Error checking xid wraparound:", (err as Error).message); skipped.push("xid wraparound: " + (err as Error).message);
     }
 
-    // Idle connections > 10 min
+    // Idle-in-transaction connections (genuine problem: hold locks, block VACUUM)
+    // Note: plain 'idle' connections are normal connection pool behavior and are NOT flagged.
     try {
       const r = await client.query(`
-        SELECT pid, state, now() - state_change AS idle_duration,
+        SELECT pid,
           client_addr::text, application_name,
           extract(epoch from now() - state_change)::int AS idle_seconds
         FROM pg_stat_activity
-        WHERE state IN ('idle', 'idle in transaction')
+        WHERE state = 'idle in transaction'
           AND now() - state_change > $1 * interval '1 minute'
           AND pid != pg_backend_pid()
+        ORDER BY idle_seconds DESC
       `, [longQueryThreshold]);
-      for (const row of r.rows) {
-        const isIdleTx = row.state === "idle in transaction";
+      if (r.rows.length === 1) {
+        const row = r.rows[0];
         issues.push({
-          id: `maint-idle-${row.pid}`,
-          severity: isIdleTx ? "warning" : "info",
+          id: `maint-idle-tx-${row.pid}`,
+          severity: "warning",
           category: "maintenance",
-          title: `${isIdleTx ? "Idle in transaction" : "Idle connection"} (PID ${row.pid})`,
-          description: `PID ${row.pid} from ${row.client_addr || "local"} (${row.application_name || "unknown"}) has been ${row.state} for ${Math.round(row.idle_seconds / 60)} minutes.`,
+          title: `Idle-in-transaction connection (PID ${row.pid})`,
+          description: `PID ${row.pid} from ${row.client_addr || "local"} (${row.application_name || "unknown"}) has been idle in transaction for ${Math.round(row.idle_seconds / 60)} minutes. This holds locks and blocks VACUUM.`,
           fix: `SELECT pg_terminate_backend(${row.pid});`,
-          impact: isIdleTx ? "Idle-in-transaction connections hold locks and prevent VACUUM." : "Idle connections consume connection slots.",
+          impact: "Idle-in-transaction connections hold locks and prevent VACUUM.",
+          effort: "quick",
+        });
+      } else if (r.rows.length > 1) {
+        const pids = r.rows.map((row: any) => row.pid);
+        const maxMin = Math.round(r.rows[0].idle_seconds / 60);
+        issues.push({
+          id: `maint-idle-tx-multi`,
+          severity: "warning",
+          category: "maintenance",
+          title: `${r.rows.length} idle-in-transaction connections (longest: ${maxMin}m)`,
+          description: `${r.rows.length} connections have been idle in transaction for over ${longQueryThreshold} minutes. These hold locks and prevent VACUUM from running.`,
+          fix: `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle in transaction' AND now() - state_change > interval '${longQueryThreshold} minutes';`,
+          impact: "Idle-in-transaction connections hold locks and prevent VACUUM.",
           effort: "quick",
         });
       }
     } catch (err) {
-      console.error("[advisor] Error checking idle connections:", (err as Error).message); skipped.push("idle connections: " + (err as Error).message);
+      console.error("[advisor] Error checking idle-in-transaction connections:", (err as Error).message); skipped.push("idle-in-transaction: " + (err as Error).message);
     }
 
     // ── Schema Advisors ────────────────────────────────────────────
