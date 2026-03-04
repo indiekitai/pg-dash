@@ -15,7 +15,7 @@ export function registerAdvisorRoutes(app: Hono, pool: Pool, longQueryThreshold:
     catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
-  app.get("/api/advisor/ignored", (c) => {
+  app.get("/api/advisor/ignored", async (c) => {
     try { return c.json(getIgnoredIssues()); }
     catch (err: any) { return c.json({ error: err.message }, 500); }
   });
@@ -30,7 +30,7 @@ export function registerAdvisorRoutes(app: Hono, pool: Pool, longQueryThreshold:
     } catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
-  app.delete("/api/advisor/ignore/:issueId", (c) => {
+  app.delete("/api/advisor/ignore/:issueId", async (c) => {
     try {
       const issueId = c.req.param("issueId");
       unignoreIssue(issueId);
@@ -38,7 +38,7 @@ export function registerAdvisorRoutes(app: Hono, pool: Pool, longQueryThreshold:
     } catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
-  app.get("/api/advisor/history", (c) => {
+  app.get("/api/advisor/history", async (c) => {
     if (!store) return c.json([]);
     try {
       const range = c.req.query("range") || "24h";

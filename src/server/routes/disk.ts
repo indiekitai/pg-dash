@@ -23,12 +23,19 @@ export function registerDiskRoutes(app: Hono, pool: Pool, store: TimeseriesStore
         `);
         const { db_size, data_dir } = dbRes.rows[0];
 
-        // Tablespace sizes
-        const tsRes = await client.query(`SELECT spcname, pg_tablespace_size(oid) AS size FROM pg_tablespace`);
-        const tablespaces = tsRes.rows.map((r: any) => ({
-          name: r.spcname,
-          size: parseInt(r.size),
-        }));
+        // Tablespace sizes (safe: only where user has access)
+        const tsRes = await client.query(`
+          SELECT spcname,
+            CASE WHEN has_tablespace_privilege(spcname, 'CREATE')
+              THEN pg_tablespace_size(oid) ELSE NULL END AS size
+          FROM pg_tablespace
+        `);
+        const tablespaces = tsRes.rows
+          .filter((r: any) => r.size !== null)
+          .map((r: any) => ({
+            name: r.spcname,
+            size: parseInt(r.size),
+          }));
 
         // Top 20 largest tables
         const tableRes = await client.query(`
@@ -62,7 +69,7 @@ export function registerDiskRoutes(app: Hono, pool: Pool, store: TimeseriesStore
     }
   });
 
-  app.get("/api/disk/prediction", (c) => {
+  app.get("/api/disk/prediction", async (c) => {
     try {
       const days = parseInt(c.req.query("days") || "30");
       const maxDisk = c.req.query("maxDisk") ? parseInt(c.req.query("maxDisk")!) : undefined;
@@ -73,7 +80,7 @@ export function registerDiskRoutes(app: Hono, pool: Pool, store: TimeseriesStore
     }
   });
 
-  app.get("/api/disk/table-history/:table", (c) => {
+  app.get("/api/disk/table-history/:table", async (c) => {
     try {
       const table = c.req.param("table");
       const range = c.req.query("range") || "24h";
@@ -86,7 +93,7 @@ export function registerDiskRoutes(app: Hono, pool: Pool, store: TimeseriesStore
     }
   });
 
-  app.get("/api/disk/history", (c) => {
+  app.get("/api/disk/history", async (c) => {
     try {
       const range = c.req.query("range") || "24h";
       const rangeMs = RANGE_MAP[range] || RANGE_MAP["24h"];

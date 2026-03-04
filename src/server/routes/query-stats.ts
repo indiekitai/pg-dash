@@ -9,7 +9,7 @@ const RANGE_MAP: Record<string, number> = {
 };
 
 export function registerQueryStatsRoutes(app: Hono, store: QueryStatsStore) {
-  app.get("/api/query-stats/top", (c) => {
+  app.get("/api/query-stats/top", async (c) => {
     try {
       const range = c.req.query("range") || "1h";
       const orderBy = (c.req.query("orderBy") || "total_time") as "total_time" | "mean_time" | "calls";
@@ -23,7 +23,7 @@ export function registerQueryStatsRoutes(app: Hono, store: QueryStatsStore) {
     }
   });
 
-  app.get("/api/query-stats/trend/:queryid", (c) => {
+  app.get("/api/query-stats/trend/:queryid", async (c) => {
     try {
       const queryid = c.req.param("queryid");
       const range = c.req.query("range") || "1h";

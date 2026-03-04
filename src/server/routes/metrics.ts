@@ -12,7 +12,7 @@ const RANGE_MAP: Record<string, number> = {
 };
 
 export function registerMetricsRoutes(app: Hono, store: TimeseriesStore, collector: Collector) {
-  app.get("/api/metrics", (c) => {
+  app.get("/api/metrics", async (c) => {
     try {
       const metric = c.req.query("metric");
       const range = c.req.query("range") || "1h";
@@ -26,7 +26,7 @@ export function registerMetricsRoutes(app: Hono, store: TimeseriesStore, collect
     }
   });
 
-  app.get("/api/metrics/latest", (_c) => {
+  app.get("/api/metrics/latest", async (_c) => {
     try {
       const snapshot = collector.getLastSnapshot();
       return _c.json(snapshot);

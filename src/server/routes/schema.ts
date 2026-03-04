@@ -39,26 +39,26 @@ export function registerSchemaRoutes(app: Hono, pool: Pool, schemaTracker: Schem
   });
 
   // Schema change tracking endpoints
-  app.get("/api/schema/history", (c) => {
+  app.get("/api/schema/history", async (c) => {
     try {
       const limit = parseInt(c.req.query("limit") || "30");
       return c.json(schemaTracker.getHistory(limit));
     } catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
-  app.get("/api/schema/changes", (c) => {
+  app.get("/api/schema/changes", async (c) => {
     try {
       const since = c.req.query("since");
       return c.json(schemaTracker.getChanges(since ? parseInt(since) : undefined));
     } catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
-  app.get("/api/schema/changes/latest", (c) => {
+  app.get("/api/schema/changes/latest", async (c) => {
     try { return c.json(schemaTracker.getLatestChanges()); }
     catch (err: any) { return c.json({ error: err.message }, 500); }
   });
 
-  app.get("/api/schema/diff", (c) => {
+  app.get("/api/schema/diff", async (c) => {
     try {
       const from = parseInt(c.req.query("from") || "0");
       const to = parseInt(c.req.query("to") || "0");
