@@ -167,6 +167,13 @@ pg-dash --host localhost --user postgres --db mydb --port 3480
 
 Opens your browser at `http://localhost:3480` with the full dashboard.
 
+## Documentation
+
+- [Real-world example](docs/real-world-example.md) — pg-dash running against a production database
+- [Migration safety guide](docs/migration-safety.md) — catching lock risks before they hit production
+- [MCP setup guide](docs/mcp-setup.md) — connecting to Claude Desktop and Cursor
+- [CI integration guide](docs/ci-integration.md) — automated checks in GitHub Actions
+
 ## CLI Options
 
 ```
