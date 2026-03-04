@@ -4,6 +4,8 @@
 
 **The AI-native PostgreSQL health checker.** One command to audit your database, 23 MCP tools for AI-assisted optimization, CI integration for automated checks.
 
+📖 **[Read the full writeup on Dev.to](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
+
 Not another monitoring dashboard — pg-dash is built to fit into your **AI coding workflow**:
 
 ```

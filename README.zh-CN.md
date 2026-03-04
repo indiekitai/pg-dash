@@ -4,6 +4,8 @@
 
 **AI 原生的 PostgreSQL 健康检查工具。** 一条命令审计数据库，23 个 MCP 工具让 AI 帮你优化，CI 集成自动检查。
 
+📖 **[在 Dev.to 阅读完整介绍](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
+
 不是又一个监控面板 —— pg-dash 是为 **AI 编程工作流** 设计的：
 
 ```
