@@ -65,6 +65,7 @@ pg-dash — Lightweight PostgreSQL Monitoring Dashboard
 Usage:
   pg-dash <connection-string>                           Start dashboard
   pg-dash check <connection-string>                     Run health check and exit
+  pg-dash health <connection-string>                    Alias for check
   pg-dash check-migration <file> [connection]           Analyze migration SQL for risks
   pg-dash diff-env --source <url> --target <url>        Compare two environments
   pg-dash schema-diff <connection-string>               Show latest schema changes
@@ -108,7 +109,7 @@ Environment variables:
   process.exit(0);
 }
 
-const KNOWN_SUBCOMMANDS = ["check", "check-migration", "schema-diff", "diff-env"];
+const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env"];
 const subcommand = positionals[0];
 
 function isValidConnectionString(s: string): boolean {
@@ -147,8 +148,8 @@ function resolveConnectionString(startIdx = 0): string {
   return connStr;
 }
 
-if (subcommand === "check") {
-  // Health check mode
+if (subcommand === "check" || subcommand === "health") {
+  // Health check mode (health is an alias for check)
   const connectionString = resolveConnectionString(1);
   const threshold = parseInt(values.threshold || "70", 10);
   const format = values.format || "text";
