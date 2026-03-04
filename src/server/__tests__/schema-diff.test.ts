@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { diffSnapshots, type SchemaSnapshot } from "../schema-diff.js";
+import { diffSchemaSnapshots, type SchemaSnapshot } from "../schema-diff.js";
 
 const base: SchemaSnapshot = {
   tables: [
@@ -23,9 +23,9 @@ const base: SchemaSnapshot = {
   ],
 };
 
-describe("diffSnapshots", () => {
+describe("diffSchemaSnapshots", () => {
   it("detects no changes for identical snapshots", () => {
-    expect(diffSnapshots(base, base)).toEqual([]);
+    expect(diffSchemaSnapshots(base, base)).toEqual([]);
   });
 
   it("detects added table", () => {
@@ -33,14 +33,14 @@ describe("diffSnapshots", () => {
       ...base,
       tables: [...base.tables, { name: "posts", schema: "public", columns: [], indexes: [], constraints: [] }],
     };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ change_type: "added", object_type: "table", table_name: "public.posts" });
   });
 
   it("detects removed table", () => {
     const next: SchemaSnapshot = { ...base, tables: [] };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ change_type: "removed", object_type: "table", table_name: "public.users" });
   });
@@ -50,7 +50,7 @@ describe("diffSnapshots", () => {
       ...base,
       tables: [{ ...base.tables[0], columns: [...base.tables[0].columns, { name: "age", type: "integer", nullable: true, default_value: null }] }],
     };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ change_type: "added", object_type: "column", detail: expect.stringContaining("age") });
   });
@@ -60,7 +60,7 @@ describe("diffSnapshots", () => {
       ...base,
       tables: [{ ...base.tables[0], columns: base.tables[0].columns.slice(0, 2) }],
     };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ change_type: "removed", object_type: "column", detail: expect.stringContaining("email") });
   });
@@ -73,7 +73,7 @@ describe("diffSnapshots", () => {
         columns: base.tables[0].columns.map((c) => c.name === "name" ? { ...c, type: "varchar(255)" } : c),
       }],
     };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ change_type: "modified", object_type: "column", detail: expect.stringContaining("text → varchar(255)") });
   });
@@ -86,7 +86,7 @@ describe("diffSnapshots", () => {
         columns: base.tables[0].columns.map((c) => c.name === "email" ? { ...c, nullable: false } : c),
       }],
     };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes.some((c) => c.detail.includes("nullable changed"))).toBe(true);
   });
 
@@ -98,7 +98,7 @@ describe("diffSnapshots", () => {
         indexes: [...base.tables[0].indexes, { name: "idx_email", definition: "CREATE INDEX idx_email ON public.users USING btree (email)", is_unique: false, is_primary: false }],
       }],
     };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ change_type: "added", object_type: "index" });
   });
@@ -108,7 +108,7 @@ describe("diffSnapshots", () => {
       ...base,
       tables: [{ ...base.tables[0], indexes: [] }],
     };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ change_type: "removed", object_type: "index" });
   });
@@ -118,14 +118,14 @@ describe("diffSnapshots", () => {
       ...base,
       enums: [{ name: "status", schema: "public", values: ["active", "inactive", "pending"] }],
     };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ change_type: "modified", object_type: "enum", detail: expect.stringContaining("pending") });
   });
 
   it("detects removed enum", () => {
     const next: SchemaSnapshot = { ...base, enums: [] };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ change_type: "removed", object_type: "enum" });
   });
@@ -138,7 +138,7 @@ describe("diffSnapshots", () => {
         constraints: [...base.tables[0].constraints, { name: "users_email_unique", type: "UNIQUE", definition: "UNIQUE (email)" }],
       }],
     };
-    const changes = diffSnapshots(base, next);
+    const changes = diffSchemaSnapshots(base, next);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toMatchObject({ change_type: "added", object_type: "constraint" });
   });

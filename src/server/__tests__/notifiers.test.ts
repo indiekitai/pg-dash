@@ -20,20 +20,34 @@ const mockAlert: AlertHistoryEntry = {
 };
 
 describe("detectWebhookType", () => {
-  it("detects Slack", () => {
+  it("detects Slack via proper hostname", () => {
     expect(detectWebhookType("https://hooks.slack.com/services/T00/B00/xxx")).toBe("slack");
   });
-  it("detects Discord", () => {
+  it("detects Discord via proper hostname", () => {
     expect(detectWebhookType("https://discord.com/api/webhooks/123/abc")).toBe("discord");
     expect(detectWebhookType("https://discordapp.com/api/webhooks/123/abc")).toBe("discord");
   });
-  it("returns generic for unknown URLs", () => {
-    expect(detectWebhookType("https://example.com/webhook")).toBe("generic");
-    expect(detectWebhookType("https://my-server.com/hooks")).toBe("generic");
+  it("returns unknown for unrecognised URLs", () => {
+    expect(detectWebhookType("https://example.com/webhook")).toBe("unknown");
+    expect(detectWebhookType("https://my-server.com/hooks")).toBe("unknown");
   });
-  it("handles edge cases", () => {
-    expect(detectWebhookType("")).toBe("generic");
-    expect(detectWebhookType("https://not-slack.hooks.slack.com.evil.com")).toBe("slack");
+  it("returns unknown for URL with hooks.slack.com in path but different hostname", () => {
+    // Spoofed URL: hostname is evil.com, not hooks.slack.com
+    expect(detectWebhookType("https://evil.com/hooks.slack.com/fake")).toBe("unknown");
+  });
+  it("returns slack for valid hooks.slack.com URL", () => {
+    expect(detectWebhookType("https://hooks.slack.com/services/xxx")).toBe("slack");
+  });
+  it("returns discord for valid discord.com URL", () => {
+    expect(detectWebhookType("https://discord.com/api/webhooks/999/token")).toBe("discord");
+  });
+  it("returns unknown for invalid/non-parseable URL", () => {
+    expect(detectWebhookType("")).toBe("unknown");
+    expect(detectWebhookType("not-a-url")).toBe("unknown");
+  });
+  it("rejects spoofed subdomain that looks like hooks.slack.com", () => {
+    // hostname ends with .hooks.slack.com.evil.com — does NOT end with hooks.slack.com
+    expect(detectWebhookType("https://not-slack.hooks.slack.com.evil.com/services/xxx")).toBe("unknown");
   });
 });
 

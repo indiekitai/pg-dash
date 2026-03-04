@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import { getAdvisorReport } from "./advisor.js";
 import { buildLiveSnapshot } from "./schema-tracker.js";
-import { diffSnapshots } from "./schema-diff.js";
+import { diffSchemaSnapshots } from "./schema-diff.js";
 
 export interface ColumnInfo {
   name: string;
@@ -329,7 +329,7 @@ export async function diffEnvironments(
       // diffSnapshots treats source as "old" and target as "new":
       // added = target has, source doesn't (extra in target)
       // removed = source has, target doesn't (missing in target)
-      const snapChanges = diffSnapshots(sourceSnap, targetSnap);
+      const snapChanges = diffSchemaSnapshots(sourceSnap, targetSnap);
 
       for (const c of snapChanges) {
         if (c.object_type === "constraint") {

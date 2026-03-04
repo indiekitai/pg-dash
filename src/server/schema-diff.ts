@@ -46,7 +46,7 @@ export interface SchemaChange {
   detail: string;
 }
 
-export function diffSnapshots(oldSnap: SchemaSnapshot, newSnap: SchemaSnapshot): SchemaChange[] {
+export function diffSchemaSnapshots(oldSnap: SchemaSnapshot, newSnap: SchemaSnapshot): SchemaChange[] {
   const changes: SchemaChange[] = [];
 
   const oldTableMap = new Map(oldSnap.tables.map((t) => [`${t.schema}.${t.name}`, t]));

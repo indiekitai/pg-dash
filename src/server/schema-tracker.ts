@@ -1,9 +1,11 @@
 // Schema Tracker — takes schema snapshots, stores in SQLite, detects changes
 
+const SNAPSHOT_RETENTION = 50;
+
 import type { Pool } from "pg";
 import type Database from "better-sqlite3";
 import { getSchemaTables, getSchemaTableDetail, getSchemaEnums } from "./queries/schema.js";
-import { diffSnapshots, type SchemaSnapshot, type SchemaChange } from "./schema-diff.js";
+import { diffSchemaSnapshots, type SchemaSnapshot, type SchemaChange } from "./schema-diff.js";
 
 /** Build a full schema snapshot from a live pool — reusable for env comparison */
 export async function buildLiveSnapshot(pool: Pool): Promise<SchemaSnapshot> {
@@ -85,12 +87,22 @@ export class SchemaTracker {
     const info = this.db.prepare("INSERT INTO schema_snapshots (timestamp, snapshot) VALUES (?, ?)").run(now, json);
     const snapshotId = Number(info.lastInsertRowid);
 
+    // Prune old snapshots, keeping only the most recent SNAPSHOT_RETENTION
+    this.db.prepare(`
+      DELETE FROM schema_snapshots
+      WHERE id NOT IN (
+        SELECT id FROM schema_snapshots
+        ORDER BY timestamp DESC
+        LIMIT ?
+      )
+    `).run(SNAPSHOT_RETENTION);
+
     // Diff against previous
     const prev = this.db.prepare("SELECT snapshot FROM schema_snapshots WHERE id < ? ORDER BY id DESC LIMIT 1").get(snapshotId) as { snapshot: string } | undefined;
     let changes: SchemaChange[] = [];
     if (prev) {
       const oldSnap: SchemaSnapshot = JSON.parse(prev.snapshot);
-      changes = diffSnapshots(oldSnap, snapshot);
+      changes = diffSchemaSnapshots(oldSnap, snapshot);
       if (changes.length > 0) {
         const insert = this.db.prepare("INSERT INTO schema_changes (snapshot_id, timestamp, change_type, object_type, table_name, detail) VALUES (?, ?, ?, ?, ?, ?)");
         const tx = this.db.transaction((chs: SchemaChange[]) => {
@@ -146,6 +158,6 @@ export class SchemaTracker {
     const from = this.db.prepare("SELECT snapshot FROM schema_snapshots WHERE id = ?").get(fromId) as { snapshot: string } | undefined;
     const to = this.db.prepare("SELECT snapshot FROM schema_snapshots WHERE id = ?").get(toId) as { snapshot: string } | undefined;
     if (!from || !to) return null;
-    return diffSnapshots(JSON.parse(from.snapshot), JSON.parse(to.snapshot));
+    return diffSchemaSnapshots(JSON.parse(from.snapshot), JSON.parse(to.snapshot));
   }
 }

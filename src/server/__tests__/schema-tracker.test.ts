@@ -176,4 +176,20 @@ describe("SchemaTracker", () => {
   it("getLatestChanges returns empty when no snapshots", () => {
     expect(tracker.getLatestChanges()).toEqual([]);
   });
+
+  it("retains only the 50 most recent snapshots (SNAPSHOT_RETENTION)", async () => {
+    setupMockSchema([{
+      schema: "public", name: "t",
+      columns: [{ name: "id", type: "int", nullable: false, default_value: null }],
+      indexes: [], constraints: [],
+    }]);
+
+    // Insert 51 snapshots
+    for (let i = 0; i < 51; i++) {
+      await tracker.takeSnapshot();
+    }
+
+    const history = tracker.getHistory(100);
+    expect(history).toHaveLength(50);
+  });
 });

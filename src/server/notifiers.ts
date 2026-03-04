@@ -2,7 +2,7 @@
 
 import type { AlertRule, AlertHistoryEntry } from "./alerts.js";
 
-export type WebhookType = "slack" | "discord" | "generic";
+export type WebhookType = "slack" | "discord" | "unknown";
 
 const SEVERITY_COLORS: Record<string, { hex: string; decimal: number; emoji: string }> = {
   critical: { hex: "#e74c3c", decimal: 0xe74c3c, emoji: "🔴" },
@@ -11,9 +11,14 @@ const SEVERITY_COLORS: Record<string, { hex: string; decimal: number; emoji: str
 };
 
 export function detectWebhookType(url: string): WebhookType {
-  if (url.includes("hooks.slack.com")) return "slack";
-  if (url.includes("discord.com/api/webhooks") || url.includes("discordapp.com")) return "discord";
-  return "generic";
+  try {
+    const { hostname } = new URL(url);
+    if (hostname.endsWith("hooks.slack.com")) return "slack";
+    if (hostname.endsWith("discord.com") || hostname.endsWith("discordapp.com")) return "discord";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 export function formatSlackMessage(alert: AlertHistoryEntry, rule: AlertRule): object {

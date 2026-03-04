@@ -298,34 +298,33 @@ export async function startServer(opts: ServerOptions) {
       try {
         const alertMetrics: Record<string, number> = {};
 
-        if (snapshot.connections_total !== undefined) {
-          const client = await pool.connect();
-          try {
-            const r = await client.query("SELECT setting::int AS max FROM pg_settings WHERE name = 'max_connections'");
+        // Acquire a single client for all alert metric queries this cycle
+        const alertClient = await pool.connect();
+        try {
+          if (snapshot.connections_total !== undefined) {
+            const r = await alertClient.query("SELECT setting::int AS max FROM pg_settings WHERE name = 'max_connections'");
             const max = r.rows[0]?.max || 100;
             alertMetrics.connection_util = (snapshot.connections_total / max) * 100;
-          } finally { client.release(); }
-        }
+          }
 
-        if (snapshot.cache_hit_ratio !== undefined) {
-          alertMetrics.cache_hit_pct = snapshot.cache_hit_ratio * 100;
-        }
+          if (snapshot.cache_hit_ratio !== undefined) {
+            alertMetrics.cache_hit_pct = snapshot.cache_hit_ratio * 100;
+          }
 
-        try {
-          const client = await pool.connect();
-          try {
-            const r = await client.query(`SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'active' AND now() - query_start > $1 * interval '1 minute' AND pid != pg_backend_pid()`, [longQueryThreshold]);
-            alertMetrics.long_query_count = r.rows[0]?.c || 0;
-          } finally { client.release(); }
-        } catch (err) { console.error("[alerts] Error checking long queries:", (err as Error).message); }
-
-        try {
-          const client = await pool.connect();
-          try {
-            const r = await client.query(`SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'idle in transaction' AND now() - state_change > $1 * interval '1 minute'`, [longQueryThreshold]);
-            alertMetrics.idle_in_tx_count = r.rows[0]?.c || 0;
-          } finally { client.release(); }
-        } catch (err) { console.error("[alerts] Error checking idle-in-tx:", (err as Error).message); }
+          const [longQueriesResult, idleInTxResult] = await Promise.all([
+            alertClient.query(
+              `SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'active' AND now() - query_start > $1 * interval '1 minute' AND pid != pg_backend_pid()`,
+              [longQueryThreshold]
+            ),
+            alertClient.query(
+              `SELECT count(*)::int AS c FROM pg_stat_activity WHERE state = 'idle in transaction' AND now() - state_change > $1 * interval '1 minute'`,
+              [longQueryThreshold]
+            ),
+          ]);
+          alertMetrics.long_query_count = longQueriesResult.rows[0]?.c || 0;
+          alertMetrics.idle_in_tx_count = idleInTxResult.rows[0]?.c || 0;
+        } catch (err) { console.error("[alerts] Error collecting alert metrics:", (err as Error).message); }
+        finally { alertClient.release(); }
 
         collectCycleCount++;
         if (collectCycleCount % 10 === 0) {
