@@ -108,7 +108,17 @@ Environment variables:
   process.exit(0);
 }
 
+const KNOWN_SUBCOMMANDS = ["check", "check-migration", "schema-diff", "diff-env"];
 const subcommand = positionals[0];
+
+function isValidConnectionString(s: string): boolean {
+  return (
+    s.startsWith("postgresql://") ||
+    s.startsWith("postgres://") ||
+    s.includes("@") ||      // user@host shorthand
+    s.includes("=")         // key=value DSN
+  );
+}
 
 function resolveConnectionString(startIdx = 0): string {
   let connStr = positionals[startIdx];
@@ -124,6 +134,15 @@ function resolveConnectionString(startIdx = 0): string {
       console.error("Error: provide a connection string or --host\n\nRun pg-dash --help for usage.");
       process.exit(1);
     }
+  }
+  if (!isValidConnectionString(connStr)) {
+    console.error(
+      `Error: "${connStr}" doesn't look like a valid connection string.\n` +
+      `  Expected: postgresql://user:pass@host:5432/db\n\n` +
+      `Known subcommands: ${KNOWN_SUBCOMMANDS.join(", ")}\n` +
+      `Run pg-dash --help for usage.`
+    );
+    process.exit(1);
   }
   return connStr;
 }
@@ -476,6 +495,16 @@ if (subcommand === "check") {
     process.exit(1);
   }
 } else {
+  // Check for unknown subcommands before treating positional as connection string
+  if (subcommand && !isValidConnectionString(subcommand) && KNOWN_SUBCOMMANDS.indexOf(subcommand) === -1) {
+    console.error(
+      `Error: Unknown subcommand "${subcommand}".\n\n` +
+      `Known subcommands: ${KNOWN_SUBCOMMANDS.join(", ")}\n` +
+      `Run pg-dash --help for usage.`
+    );
+    process.exit(1);
+  }
+
   // Default: start server
   const connectionString = resolveConnectionString(0);
   const port = parseInt(values.port!, 10);
