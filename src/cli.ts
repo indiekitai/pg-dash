@@ -22,6 +22,7 @@ const { values, positionals } = parseArgs({
     "slack-webhook": { type: "string" },
     "discord-webhook": { type: "string" },
     "no-open": { type: "boolean", default: false },
+    "no-analyze": { type: "boolean", default: false },
     json: { type: "boolean", default: false },
     host: { type: "string" },
     user: { type: "string", short: "u" },
@@ -67,6 +68,8 @@ Usage:
   pg-dash check <connection-string>                     Run health check and exit
   pg-dash health <connection-string>                    Alias for check
   pg-dash check-migration <file> [connection]           Analyze migration SQL for risks
+  pg-dash explain <query> <connection>                  EXPLAIN ANALYZE a query in the terminal
+  pg-dash watch-locks <connection>                      Real-time lock + long-query monitor
   pg-dash diff-env --source <url> --target <url>        Compare two environments
   pg-dash schema-diff <connection-string>               Show latest schema changes
   pg-dash --host localhost --user postgres --db mydb
@@ -109,7 +112,7 @@ Environment variables:
   process.exit(0);
 }
 
-const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env"];
+const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env", "explain", "watch-locks"];
 const subcommand = positionals[0];
 
 function isValidConnectionString(s: string): boolean {
@@ -495,6 +498,180 @@ if (subcommand === "check" || subcommand === "health") {
     console.error(`Error: ${err.message}`);
     process.exit(1);
   }
+} else if (subcommand === "explain") {
+  // Usage: pg-dash explain "<query>" <connection> [--no-analyze] [--json]
+  const query = positionals[1];
+  if (!query) {
+    console.error('Error: provide a SQL query.\n\nUsage: pg-dash explain "<query>" <connection>');
+    process.exit(1);
+  }
+  const connStr = positionals[2] || resolveConnectionString(2);
+  if (!connStr) {
+    console.error("Error: provide a connection string.");
+    process.exit(1);
+  }
+
+  const doAnalyze = !values["no-analyze"];
+  const fmt = values.json ? "json" : "text";
+
+  const { Pool } = await import("pg");
+  const pool = new Pool({ connectionString: connStr, max: 1, connectionTimeoutMillis: 10000 });
+
+  try {
+    const explainSql = doAnalyze
+      ? `EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT JSON) ${query}`
+      : `EXPLAIN (COSTS, VERBOSE, FORMAT JSON) ${query}`;
+    const res = await pool.query(explainSql);
+    await pool.end();
+
+    const rawPlan = res.rows[0]["QUERY PLAN"];
+    const planObj = Array.isArray(rawPlan) ? rawPlan[0] : rawPlan;
+    const root = planObj.Plan;
+    const planningTime: number | undefined = planObj["Planning Time"];
+    const executionTime: number | undefined = planObj["Execution Time"];
+
+    // ── tree renderer ──────────────────────────────────────────────────────────
+    function nodeColor(type: string, rows: number, analyzed: boolean): string {
+      if (type.includes("Seq Scan")) return analyzed && rows >= 1000 ? "\x1b[31m\x1b[1m" : "\x1b[31m";
+      if (type.includes("Index")) return "\x1b[32m";
+      if (type === "Hash Join" || type === "Hash") return "\x1b[33m";
+      if (type === "Sort") return "\x1b[35m";
+      return "\x1b[37m";
+    }
+    const reset = "\x1b[0m";
+    const dim = "\x1b[2m";
+    const cyan = "\x1b[36m";
+
+    function renderNode(node: any, indent = 0, isLast = true): string {
+      const lines: string[] = [];
+      const prefix = indent === 0 ? "" : "  ".repeat(indent - 1) + (isLast ? "└─ " : "├─ ");
+      const analyzed = node["Actual Total Time"] !== undefined;
+      const rows = node["Actual Rows"] ?? node["Plan Rows"];
+      const color = nodeColor(node["Node Type"], rows, analyzed);
+      const rel = node["Relation Name"] ? ` on ${dim}${node["Alias"] || node["Relation Name"]}${reset}` : "";
+      const cost = `${dim}cost=${node["Startup Cost"].toFixed(2)}..${node["Total Cost"].toFixed(2)}${reset}`;
+      const timing = analyzed ? ` ${cyan}actual=${node["Actual Total Time"].toFixed(3)}ms${reset}` : "";
+      const rowStr = analyzed
+        ? ` ${dim}rows=${node["Actual Rows"]}/${node["Plan Rows"]}${reset}`
+        : ` ${dim}rows=${node["Plan Rows"]}${reset}`;
+      const idx = node["Index Name"] ? ` ${dim}idx=${node["Index Name"]}${reset}` : "";
+      const filter = node["Filter"] ? ` ${dim}filter=${String(node["Filter"]).slice(0, 40)}${reset}` : "";
+      lines.push(`${prefix}${color}${node["Node Type"]}${reset}${rel} ${cost}${timing}${rowStr}${idx}${filter}`);
+      if (node.Plans?.length) {
+        for (let i = 0; i < node.Plans.length; i++) {
+          lines.push(renderNode(node.Plans[i], indent + 1, i === node.Plans.length - 1));
+        }
+      }
+      return lines.join("\n");
+    }
+
+    // ── summary ────────────────────────────────────────────────────────────────
+    function collectNodes(n: any): any[] {
+      return [n, ...(n.Plans?.flatMap(collectNodes) ?? [])];
+    }
+    const allNodes = collectNodes(root);
+    const seqScans = allNodes.filter((n) => n["Node Type"] === "Seq Scan" && n["Relation Name"]).map((n) => n["Relation Name"] as string);
+    const recs: string[] = [];
+    for (const n of allNodes) {
+      const rows = n["Actual Rows"] ?? n["Plan Rows"];
+      if (n["Node Type"] === "Seq Scan" && n["Relation Name"] && rows >= 1000) {
+        recs.push(`⚠  Seq Scan on "${n["Relation Name"]}" (${rows} rows). Consider adding an index.`);
+      }
+      if (n["Node Type"] === "Sort") {
+        recs.push(`ℹ  Sort on [${(n["Sort Key"] ?? []).join(", ")}]. An index might eliminate this.`);
+      }
+      if (n["Hash Batches"] && n["Hash Batches"] > 1) {
+        recs.push(`⚠  Hash Join used ${n["Hash Batches"]} batches. Increase work_mem to avoid disk spilling.`);
+      }
+    }
+
+    if (fmt === "json") {
+      console.log(JSON.stringify({ query, planningTime, executionTime, seqScans, recommendations: recs }, null, 2));
+    } else {
+      if (query) console.log(`\n\x1b[1mQuery:\x1b[0m ${dim}${query.slice(0, 120)}${reset}`);
+      console.log("\n" + renderNode(root));
+      console.log(`\n${dim}─── Summary ${"─".repeat(36)}${reset}`);
+      if (executionTime !== undefined) console.log(`  Execution time:  ${cyan}${executionTime.toFixed(3)}ms${reset}`);
+      if (planningTime !== undefined) console.log(`  Planning time:   ${dim}${planningTime.toFixed(3)}ms${reset}`);
+      if (seqScans.length > 0) console.log(`  Seq Scans:       \x1b[31m${seqScans.join(", ")}${reset}`);
+      if (recs.length > 0) {
+        console.log(`\n${dim}─── Recommendations ${"─".repeat(28)}${reset}`);
+        for (const r of recs) console.log(`  ${r}`);
+      }
+      console.log();
+    }
+  } catch (err: any) {
+    await pool.end().catch(() => {});
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
+  }
+  process.exit(0);
+
+} else if (subcommand === "watch-locks") {
+  // Usage: pg-dash watch-locks <connection> [--interval 3]
+  const connStr = positionals[1] || resolveConnectionString(1);
+  if (!connStr) {
+    console.error("Error: provide a connection string.\n\nUsage: pg-dash watch-locks <connection>");
+    process.exit(1);
+  }
+
+  const intervalSec = values.interval ? parseInt(values.interval, 10) : 3;
+  const { Pool } = await import("pg");
+  const pool = new Pool({ connectionString: connStr, max: 2, connectionTimeoutMillis: 10000 });
+  const { getLockReport } = await import("./server/locks.js");
+
+  const reset = "\x1b[0m";
+  const dim = "\x1b[2m";
+  const red = "\x1b[31m";
+  const yellow = "\x1b[33m";
+  const cyan = "\x1b[36m";
+  const bold = "\x1b[1m";
+
+  process.stdout.write("\x1b[?25l"); // hide cursor
+  const cleanup = () => { process.stdout.write("\x1b[?25h"); pool.end(); process.exit(0); };
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
+
+  async function tick() {
+    try {
+      const report = await getLockReport(pool);
+      console.clear();
+      const ts = new Date().toLocaleTimeString();
+      console.log(`${bold}pg-dash watch-locks${reset}  ${dim}(Ctrl+C to exit — refresh every ${intervalSec}s — ${ts})${reset}\n`);
+
+      if (report.waitingLocks.length === 0) {
+        console.log(`  ${dim}No lock waits detected.${reset}`);
+      } else {
+        console.log(`${bold}${red}  Lock Waits (${report.waitingLocks.length})${reset}`);
+        for (const lw of report.waitingLocks) {
+          console.log(`\n  ${red}BLOCKED${reset} pid=${lw.blockedPid} waiting ${lw.blockedDuration}`);
+          console.log(`    Query: ${dim}${lw.blockedQuery.slice(0, 100)}${reset}`);
+          console.log(`    ${yellow}BLOCKING${reset} pid=${lw.blockingPid} running ${lw.blockingDuration}`);
+          console.log(`    Query: ${dim}${lw.blockingQuery.slice(0, 100)}${reset}`);
+          if (lw.table) console.log(`    Table: ${lw.table}  Lock: ${lw.lockType}`);
+        }
+      }
+
+      if (report.longRunningQueries.length > 0) {
+        console.log(`\n${bold}${yellow}  Long-running Queries (${report.longRunningQueries.length})${reset}`);
+        for (const q of report.longRunningQueries) {
+          console.log(`\n  pid=${q.pid}  duration=${q.duration}  state=${q.state}`);
+          console.log(`  ${dim}${q.query.slice(0, 120)}${reset}`);
+        }
+      }
+
+      if (report.waitingLocks.length === 0 && report.longRunningQueries.length === 0) {
+        console.log(`\n  ${dim}No long-running queries.${reset}`);
+      }
+    } catch (err: any) {
+      console.error(`Error: ${err.message}`);
+    }
+  }
+
+  await tick();
+  const timer = setInterval(tick, intervalSec * 1000);
+  void timer; // keep running
+
 } else {
   // Check for unknown subcommands before treating positional as connection string
   if (subcommand && !isValidConnectionString(subcommand) && KNOWN_SUBCOMMANDS.indexOf(subcommand) === -1) {
