@@ -1,6 +1,6 @@
 {
   "name": "@indiekitai/pg-dash",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Lightweight PostgreSQL monitoring dashboard",
   "type": "module",
   "bin": {
