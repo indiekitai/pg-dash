@@ -21,6 +21,12 @@ npx @indiekitai/pg-dash check postgres://user:pass@host/db
 # 执行 migration 前检查风险
 npx @indiekitai/pg-dash check-migration ./migrations/015_add_index.sql
 
+# 终端里分析慢查询（彩色树形输出 + 建议）
+npx @indiekitai/pg-dash explain "SELECT * FROM orders WHERE user_id = 1" postgres://...
+
+# 实时锁监控（Ctrl+C 退出）
+npx @indiekitai/pg-dash watch-locks postgres://...
+
 # 对比两个环境（本地 vs 预发）
 npx @indiekitai/pg-dash diff-env --source postgres://localhost/db --target postgres://staging/db
 
@@ -173,6 +179,8 @@ pg-dash --host localhost --user postgres --db mydb --port 3480
 pg-dash <connection-string>                      启动面板
 pg-dash check <connection-string>                运行健康检查并退出
 pg-dash check-migration <file> [conn]            检查 migration SQL 的风险
+pg-dash explain "<query>" <connection>           终端里 EXPLAIN ANALYZE 查询
+pg-dash watch-locks <connection>                 实时锁和长查询监控
 pg-dash diff-env --source <url> --target <url>   对比两个环境
 pg-dash schema-diff <connection-string>          显示 Schema 变更
 

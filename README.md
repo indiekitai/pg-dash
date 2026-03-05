@@ -21,6 +21,12 @@ npx @indiekitai/pg-dash check postgres://user:pass@host/db
 # Check migration safety before running it
 npx @indiekitai/pg-dash check-migration ./migrations/015_add_index.sql
 
+# EXPLAIN ANALYZE a slow query in the terminal
+npx @indiekitai/pg-dash explain "SELECT * FROM orders WHERE user_id = 1" postgres://...
+
+# Real-time lock + long-query monitor (Ctrl+C to exit)
+npx @indiekitai/pg-dash watch-locks postgres://...
+
 # Compare two environments (local vs staging)
 npx @indiekitai/pg-dash diff-env --source postgres://localhost/db --target postgres://staging/db
 
@@ -101,6 +107,45 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 - Webhook notifications for alerts
 - Auto-detects Slack vs Discord webhook URLs
 - Configure via `--slack-webhook` or `--discord-webhook`
+
+### 🔬 EXPLAIN ANALYZE CLI
+
+```bash
+pg-dash explain "SELECT * FROM orders WHERE user_id = 1" postgres://...
+```
+
+```
+Query: SELECT * FROM orders WHERE user_id = 1
+
+Limit cost=3.01..3.04 actual=0.060ms rows=10/10
+└─ Sort cost=3.01..3.09 actual=0.057ms rows=10/32
+  └─ Seq Scan on users cost=0.00..2.32 actual=0.023ms rows=32/32
+
+─── Summary ────────────────────────────────────
+  Execution time:  0.087ms
+  Planning time:   0.756ms
+  Seq Scans:       users
+
+─── Recommendations ────────────────────────────
+  ℹ  Sort on [created_at DESC]. An index might eliminate this.
+```
+
+- Color-coded node types: 🔴 Seq Scan, 🟢 Index Scan, 🟡 Hash Join, 🟣 Sort
+- Shows actual vs estimated rows — catches bad planner estimates
+- Flags Seq Scans > 1000 rows, Sort nodes, Hash Join memory spills
+- `--no-analyze` for dry EXPLAIN (no actual execution)
+- `--json` for scripting
+
+### 🔒 watch-locks
+
+```bash
+pg-dash watch-locks postgres://...
+```
+
+Real-time lock wait monitor — refreshes every 3 seconds. Shows:
+- Blocked queries with PID, wait time, and the blocking query
+- Long-running queries (configurable threshold via `--long-query-threshold`)
+- Table and lock type for each wait
 
 ### 🛡️ Migration Safety Check
 - Analyze a migration SQL file for risks before running it
