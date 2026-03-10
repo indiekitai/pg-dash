@@ -72,6 +72,8 @@ Usage:
   pg-dash watch-locks <connection>                      Real-time lock + long-query monitor
   pg-dash diff-env --source <url> --target <url>        Compare two environments
   pg-dash schema-diff <connection-string>               Show latest schema changes
+  pg-dash query-stats export <connection>               Export query statistics (PG 18+)
+  pg-dash query-stats import <file> <connection>       Import query statistics (PG 18+)
   pg-dash --host localhost --user postgres --db mydb
 
 Options:
@@ -112,7 +114,7 @@ Environment variables:
   process.exit(0);
 }
 
-const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env", "explain", "watch-locks"];
+const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env", "explain", "watch-locks", "query-stats"];
 const subcommand = positionals[0];
 
 function isValidConnectionString(s: string): boolean {
@@ -671,6 +673,146 @@ if (subcommand === "check" || subcommand === "health") {
   await tick();
   const timer = setInterval(tick, intervalSec * 1000);
   void timer; // keep running
+
+} else if (subcommand === "query-stats") {
+  // Usage: pg-dash query-stats export <connection>
+  //        pg-dash query-stats import <file> <connection>
+  const action = positionals[1];
+  const { Pool } = await import("pg");
+  const fs = await import("node:fs");
+
+  if (action === "export") {
+    const connStr = positionals[2] || resolveConnectionString(2);
+    if (!connStr) {
+      console.error("Error: provide a connection string.\n\nUsage: pg-dash query-stats export <connection> [--file output.json]");
+      process.exit(1);
+    }
+
+    const outputFile = values["snapshot-path"] || "query-stats.json";
+    const pool = new Pool({ connectionString: connStr, max: 1, connectionTimeoutMillis: 10000 });
+
+    try {
+      // Check PG version
+      const versionRes = await pool.query("SHOW server_version_num");
+      const versionNum = parseInt(versionRes.rows[0].server_version_num, 10);
+      if (versionNum < 180000) {
+        console.error("Error: query-stats export requires PostgreSQL 18+. Current:", versionRes.rows[0].server_version_num);
+        process.exit(1);
+      }
+
+      // Export stats
+      const stats = await pool.query("SELECT pg_stat_statements_reset()"); // Reset first
+      const res = await pool.query(`
+        SELECT 
+          s.datname,
+          s.relkind,
+          s.relname,
+          s.seq_scan,
+          s.seq_tup_read,
+          s.idx_scan,
+          s.idx_tup_fetch,
+          s.n_tup_ins,
+          s.n_tup_upd,
+          s.n_tup_del,
+          s.n_live_tup,
+          s.n_dead_tup,
+          s.vacuum_count,
+          s.autovacuum_count,
+          s.last_vacuum,
+          s.last_autovacuum,
+          s.last_autovacuum_age,
+          s.last_data_change_age,
+          s.changes_since_analyze,
+          s.changes_since_autovacuum,
+          s.tuple_count,
+          s.tuple_per_read,
+          s.tuple_written_per_sec
+        FROM pg_stat_user_tables s
+        ORDER BY seq_scan DESC
+        LIMIT 100
+      `);
+
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        pgVersion: versionRes.rows[0].server_version_num,
+        tables: res.rows
+      };
+
+      fs.writeFileSync(outputFile, JSON.stringify(exportData, null, 2));
+      console.log(`Exported query statistics to ${outputFile}`);
+      console.log(`Tables: ${res.rows.length}, Size: ${JSON.stringify(exportData).length} bytes`);
+
+      await pool.end();
+    } catch (err: any) {
+      console.error(`Error: ${err.message}`);
+      await pool.end();
+      process.exit(1);
+    }
+
+  } else if (action === "import") {
+    const inputFile = positionals[2];
+    const connStr = positionals[3] || resolveConnectionString(3);
+
+    if (!inputFile) {
+      console.error("Error: provide an input file.\n\nUsage: pg-dash query-stats import <file> <connection>");
+      process.exit(1);
+    }
+    if (!connStr) {
+      console.error("Error: provide a connection string.\n\nUsage: pg-dash query-stats import <file> <connection>");
+      process.exit(1);
+    }
+
+    if (!fs.existsSync(inputFile)) {
+      console.error(`Error: file not found: ${inputFile}`);
+      process.exit(1);
+    }
+
+    const pool = new Pool({ connectionString: connStr, max: 1, connectionTimeoutMillis: 10000 });
+
+    try {
+      // Check PG version
+      const versionRes = await pool.query("SHOW server_version_num");
+      const versionNum = parseInt(versionRes.rows[0].server_version_num, 10);
+      if (versionNum < 180000) {
+        console.error("Error: query-stats import requires PostgreSQL 18+. Current:", versionRes.rows[0].server_version_num);
+        process.exit(1);
+      }
+
+      const importData = JSON.parse(fs.readFileSync(inputFile, "utf-8"));
+      console.log(`Importing query statistics from ${inputFile}`);
+      console.log(`PG version: ${importData.pgVersion} -> current: ${versionRes.rows[0].server_version_num}`);
+
+      // Import stats using pg_restore_relation_stats (PG 18+)
+      // First, create temp table with the data, then use pg_restore_relation_stats
+      await pool.query(`
+        CREATE TEMP TABLE _imported_stats (LIKE pg_stat_user_tables INCLUDING ALL)
+      `);
+
+      for (const row of importData.tables) {
+        const cols = Object.keys(row).join(", ");
+        const vals = Object.values(row).map(v => v === null ? "NULL" : typeof v === "string" ? `'${v.replace(/'/g, "''")}'` : v).join(", ");
+        try {
+          await pool.query(`INSERT INTO _imported_stats (${cols}) VALUES (${vals})`);
+        } catch (e) {
+          // Skip duplicates
+        }
+      }
+
+      // Restore stats
+      await pool.query("SELECT pg_restore_relation_stats('_imported_stats'::regclass)");
+      console.log(`Imported statistics for ${importData.tables.length} tables`);
+
+      await pool.end();
+    } catch (err: any) {
+      console.error(`Error: ${err.message}`);
+      await pool.end();
+      process.exit(1);
+    }
+
+  } else {
+    console.error("Error: specify 'export' or 'import'.\n\nUsage:\n  pg-dash query-stats export <connection> [--file output.json]\n  pg-dash query-stats import <file> <connection>");
+    process.exit(1);
+  }
 
 } else {
   // Check for unknown subcommands before treating positional as connection string

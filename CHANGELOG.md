@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.0] - 2026-03-10
+### Added
+- `pg-dash query-stats export <connection>` — Export query statistics to JSON file (requires PG 18+)
+- `pg-dash query-stats import <file> <connection>` — Import query statistics from file to local DB (requires PG 18+)
+- Enables "production query plans without production data" workflow: export stats from prod, import to dev, then EXPLAIN locally
+
 ## [0.5.1] - 2026-03-05
 ### Changed
 - Updated README (EN + ZH) to document `explain` and `watch-locks` commands with examples

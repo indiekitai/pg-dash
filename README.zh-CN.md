@@ -183,6 +183,8 @@ pg-dash explain "<query>" <connection>           终端里 EXPLAIN ANALYZE 查�
 pg-dash watch-locks <connection>                 实时锁和长查询监控
 pg-dash diff-env --source <url> --target <url>   对比两个环境
 pg-dash schema-diff <connection-string>          显示 Schema 变更
+pg-dash query-stats export <connection>          导出查询统计（PG 18+）
+pg-dash query-stats import <file> <connection>   导入查询统计（PG 18+）
 
 Options:
   -p, --port <port>      面板端口（默认：3480）

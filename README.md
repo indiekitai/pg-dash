@@ -147,6 +147,23 @@ Real-time lock wait monitor — refreshes every 3 seconds. Shows:
 - Long-running queries (configurable threshold via `--long-query-threshold`)
 - Table and lock type for each wait
 
+### 📊 query-stats (PG 18+)
+
+```bash
+# Export query statistics from production
+pg-dash query-stats export postgres://prod-server/db --file prod-stats.json
+
+# Import to development environment
+pg-dash query-stats import prod-stats.json postgres://localhost/db
+```
+
+Export/import PostgreSQL query statistics (requires PG 18+). Enables "production query plans without production data" workflow:
+1. Export stats from production: `pg-dash query-stats export prod`
+2. Import to dev: `pg-dash query-stats import prod-stats.json dev`
+3. Run `EXPLAIN` locally — now uses production statistics for accurate query plans
+
+The exported JSON is typically <1MB regardless of database size.
+
 ### 🛡️ Migration Safety Check
 - Analyze a migration SQL file for risks before running it
 - Detects: `CREATE INDEX` without `CONCURRENTLY` (lock risk), `ADD COLUMN NOT NULL` without `DEFAULT`, `ALTER COLUMN TYPE` (full table rewrite), `DROP COLUMN` (app breakage risk), `ADD CONSTRAINT` without `NOT VALID` (full table scan), `CREATE INDEX CONCURRENTLY` inside a transaction (runtime failure), `DROP TABLE`, `TRUNCATE`, `DELETE`/`UPDATE` without `WHERE`
