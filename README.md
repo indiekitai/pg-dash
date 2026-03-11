@@ -2,7 +2,7 @@
 
 # pg-dash
 
-**The AI-native PostgreSQL health checker.** One command to audit your database, 23 MCP tools for AI-assisted optimization, CI integration for automated checks.
+**The AI-native PostgreSQL health checker.** One command to audit your database, 25 MCP tools for AI-assisted optimization, CI integration for automated checks.
 
 📖 **[Read the full writeup on Dev.to](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
 
@@ -55,7 +55,7 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 | pganalyze | $149+/mo | SaaS signup | ❌ | ❌ |
 | Grafana+Prometheus | Free | 3 services | ❌ | ❌ |
 | pgAdmin | Free | Complex UI | ❌ | ❌ |
-| **pg-dash** | **Free** | **One command** | **23 MCP tools** | **`--ci --diff`** |
+| **pg-dash** | **Free** | **One command** | **25 MCP tools** | **`--ci --diff`** |
 
 ## Features
 
@@ -263,6 +263,8 @@ Options:
   --discord-webhook <url>  Discord webhook URL for alert notifications
   --ci                   Output GitHub Actions annotations (check, check-migration, diff-env)
   --diff                 Compare with last snapshot (check command)
+  --ai-suggest           Use AI to generate fix suggestions (requires LLM config)
+  --ai-explain           Use AI to explain schema diff business impact (requires LLM config)
   --snapshot-path <path> Path to snapshot file for --diff
   --health               Include health comparison (diff-env)
   -v, --version          Show version
@@ -280,7 +282,7 @@ pg-dash-mcp postgres://user:pass@host/db
 PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 ```
 
-### Available Tools (23)
+### Available Tools (25)
 
 | Tool | Description |
 |------|-------------|
@@ -307,6 +309,9 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 | `pg_dash_autovacuum` | Check autovacuum health — which tables are stale or never vacuumed |
 | `pg_dash_locks` | Show active lock waits and long-running blocking queries |
 | `pg_dash_config_check` | Audit PostgreSQL configuration and get tuning recommendations |
+| `fetch_db_context` | Comprehensive DB context for AI agents: all table structures, columns, types, PKs/FKs, indexes, business intent inference, and health summary (single call for full context) |
+| `pg_dash_query_natural` | Query database using natural language — LLM converts your question to SQL and returns results. Example: "show me slow queries last hour", "find missing indexes", "what's the health score", "list all tables with their sizes" |
+| `ci_health_summary` | Generate a CI-friendly health summary with AI-powered prioritization. Input: health check result (from pg_dash_health). Output: one-sentence summary + prioritized issue list. Perfect for GitHub Actions/GitLab CI integration. |
 
 ## MCP Setup
 

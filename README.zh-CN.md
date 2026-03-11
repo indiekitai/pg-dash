@@ -2,7 +2,7 @@
 
 # pg-dash
 
-**AI 原生的 PostgreSQL 健康检查工具。** 一条命令审计数据库，23 个 MCP 工具让 AI 帮你优化，CI 集成自动检查。
+**AI 原生的 PostgreSQL 健康检查工具。** 一条命令审计数据库，25 个 MCP 工具让 AI 帮你优化，CI 集成自动检查。
 
 📖 **[在 Dev.to 阅读完整介绍](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
 
@@ -55,7 +55,7 @@ Dashboard 需要时可以用。但真正的核心能力在 CLI、MCP 和 CI。
 | pganalyze | $149+/月 | SaaS 注册 | ❌ | ❌ |
 | Grafana+Prometheus | 免费 | 配置 3 个服务 | ❌ | ❌ |
 | pgAdmin | 免费 | 界面复杂 | ❌ | ❌ |
-| **pg-dash** | **免费** | **一条命令** | **23 个 MCP 工具** | **`--ci --diff`** |
+| **pg-dash** | **免费** | **一条命令** | **25 个 MCP 工具** | **`--ci --diff`** |
 
 ## 功能
 
@@ -204,6 +204,8 @@ Options:
   --discord-webhook <url>  Discord webhook URL，用于告警通知
   --ci                   输出 GitHub Actions 注解（check、check-migration、diff-env）
   --diff                 与上次快照对比（check 命令）
+  --ai-suggest           使用 AI 生成修复建议（需要配置 LLM）
+  --ai-explain           使用 AI 解释 Schema 差异的业务影响（需要配置 LLM）
   --snapshot-path <path> --diff 使用的快照文件路径
   --health               包含健康对比（diff-env）
   -v, --version          显示版本
@@ -221,7 +223,7 @@ pg-dash-mcp postgres://user:pass@host/db
 PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 ```
 
-### 可用工具（23 个）
+### 可用工具（25 个）
 
 | 工具 | 描述 |
 |------|------|
@@ -248,6 +250,9 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 | `pg_dash_autovacuum` | Autovacuum 健康状态——哪些表长期未 vacuum |
 | `pg_dash_locks` | 显示活跃锁等待链和长时间阻塞的查询 |
 | `pg_dash_config_check` | 审计 PostgreSQL 配置，给出调优建议 |
+| `fetch_db_context` | AI Agent 用的完整数据库上下文：所有表结构、列类型、主键外键、索引、业务意图推断、健康摘要（一次调用获取全部信息） |
+| `pg_dash_query_natural` | 自然语言查询数据库——LLM 将你的问题转换为 SQL 并返回结果。示例："显示最近一小时的慢查询"、"查找缺失的索引"、"健康评分是多少"、"列出所有表及其大小" |
+| `ci_health_summary` | 生成 CI 友好的健康摘要（AI 辅助优先级排序）。输入：健康检查结果。输出：一句自然语言总结 + 优先级排序的问题列表。非常适合集成到 GitHub Actions/GitLab CI。 |
 
 ## MCP 配置
 

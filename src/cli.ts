@@ -41,6 +41,8 @@ const { values, positionals } = parseArgs({
     format: { type: "string", short: "f" },
     ci: { type: "boolean", default: false },
     diff: { type: "boolean", default: false },
+    "ai-suggest": { type: "boolean", default: false },
+    "ai-explain": { type: "boolean", default: false },
     "snapshot-path": { type: "string" },
     source: { type: "string" },
     target: { type: "string" },
@@ -101,6 +103,8 @@ Options:
   -f, --format <fmt>     Output format: text|json|md (default: text)
   --ci                   Output GitHub Actions compatible annotations
   --diff                 Compare with previous run (saves snapshot for next run)
+  --ai-suggest           Use AI to generate fix suggestions (requires LLM config)
+  --ai-explain           Use AI to explain schema diff business impact (requires LLM config)
   --snapshot-path <path> Path to snapshot file for --diff (default: ~/.pg-dash/last-check.json)
   --source <url>         Source database connection string (diff-env)
   --target <url>         Target database connection string (diff-env)
@@ -160,10 +164,12 @@ if (subcommand === "check" || subcommand === "health") {
   const format = values.format || "text";
   const ci = values.ci || false;
   const useDiff = values.diff || false;
+  const aiSuggest = values["ai-suggest"] || false;
 
   const { Pool } = await import("pg");
   const { getAdvisorReport } = await import("./server/advisor.js");
   const { saveSnapshot, loadSnapshot, diffSnapshots } = await import("./server/snapshot.js");
+  const { generateAISuggestions, getLLMConfig } = await import("./server/llm.js");
   const os = await import("node:os");
 
   const pool = new Pool({ connectionString, connectionTimeoutMillis: 10000 });
@@ -234,6 +240,24 @@ if (subcommand === "check" || subcommand === "health") {
         }
         console.log("```");
       }
+      // AI-powered suggestions (--ai-suggest)
+      if (aiSuggest && report.issues.length > 0) {
+        console.log(`\n### 🤖 AI Suggestions\n`);
+        try {
+          const aiResult = await generateAISuggestions(report, getLLMConfig());
+          console.log(`**Summary:** ${aiResult.summary}\n`);
+          if (aiResult.suggestions.length > 0) {
+            console.log(`| Priority | Issue | Suggestion |`);
+            console.log(`|----------|-------|------------|`);
+            for (const s of aiResult.suggestions) {
+              const icon = s.priority === "critical" ? "🔴" : s.priority === "warning" ? "🟡" : "🔵";
+              console.log(`| ${icon} ${s.priority} | ${s.issue} | ${s.suggestion} |`);
+            }
+          }
+        } catch (err) {
+          console.log(`*AI suggestions unavailable: ${(err as Error).message}*`);
+        }
+      }
     } else if (ci) {
       // GitHub Actions annotations
       for (const issue of report.issues) {
@@ -250,6 +274,22 @@ if (subcommand === "check" || subcommand === "health") {
         console.log(`\nScore: ${diff.previousScore} → ${report.score} (${sign}${diff.scoreDelta})`);
         console.log(`Resolved: ${diff.resolvedIssues.length} issues`);
         console.log(`New: ${diff.newIssues.length} issues`);
+      }
+      // AI-powered suggestions for CI
+      if (aiSuggest && report.issues.length > 0) {
+        console.log(`\n## 🤖 AI Fix Suggestions\n`);
+        try {
+          const aiResult = await generateAISuggestions(report, getLLMConfig());
+          console.log(aiResult.summary);
+          console.log();
+          for (const s of aiResult.suggestions) {
+            const sev = s.priority === "critical" ? "error" : s.priority === "warning" ? "warning" : "notice";
+            console.log(`::${sev}::${s.issue}`);
+            console.log(`   Suggestion: ${s.suggestion}`);
+          }
+        } catch (err) {
+          console.log(`*AI suggestions unavailable*`);
+        }
       }
     } else {
       // Plain text
@@ -276,6 +316,21 @@ if (subcommand === "check" || subcommand === "health") {
         for (const issue of report.issues) {
           const icon = issue.severity === "critical" ? "🔴" : issue.severity === "warning" ? "🟡" : "🔵";
           console.log(`  ${icon} [${issue.severity}] ${issue.title}`);
+        }
+      }
+      // AI-powered suggestions (plain text)
+      if (aiSuggest && report.issues.length > 0) {
+        console.log(`\n  🤖 AI Suggestions:\n`);
+        try {
+          const aiResult = await generateAISuggestions(report, getLLMConfig());
+          console.log(`  ${aiResult.summary}\n`);
+          for (const s of aiResult.suggestions.slice(0, 5)) {
+            const icon = s.priority === "critical" ? "🔴" : s.priority === "warning" ? "🟡" : "🔵";
+            console.log(`  ${icon} [${s.priority}] ${s.issue}`);
+            console.log(`     → ${s.suggestion}`);
+          }
+        } catch (err) {
+          console.log(`  *AI suggestions unavailable*`);
         }
       }
       console.log();
@@ -443,8 +498,10 @@ if (subcommand === "check" || subcommand === "health") {
   const format = values.format || "text";
   const includeHealth = values.health || false;
   const ci = values.ci || false;
+  const aiExplain = values["ai-explain"] || false;
 
   const { diffEnvironments, formatTextDiff, formatMdDiff } = await import("./server/env-differ.js");
+  const { explainSchemaDiff, getLLMConfig } = await import("./server/llm.js");
 
   try {
     const result = await diffEnvironments(sourceUrl, targetUrl, { includeHealth });
@@ -453,10 +510,30 @@ if (subcommand === "check" || subcommand === "health") {
       console.log(JSON.stringify(result, null, 2));
     } else if (format === "md") {
       console.log(formatMdDiff(result));
+      // AI explanation for markdown
+      if (aiExplain) {
+        console.log(`\n## 🤖 AI Business Impact Analysis\n`);
+        try {
+          const explanation = await explainSchemaDiff(result, getLLMConfig());
+          console.log(explanation);
+        } catch (err) {
+          console.log(`*AI explanation unavailable: ${(err as Error).message}*`);
+        }
+      }
     } else {
       // text (default)
       const text = formatTextDiff(result);
       console.log(text);
+      // AI explanation for text
+      if (aiExplain) {
+        console.log(`\n🤖 Business Impact:\n`);
+        try {
+          const explanation = await explainSchemaDiff(result, getLLMConfig());
+          console.log(`  ${explanation}`);
+        } catch (err) {
+          console.log(`  *AI explanation unavailable*`);
+        }
+      }
       if (ci) {
         // GitHub Actions annotations — severity matches impact
         for (const t of result.schema.missingTables) {

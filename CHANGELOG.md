@@ -1,10 +1,15 @@
 # Changelog
 
-## [0.6.0] - 2026-03-10
+## [0.7.0] - 2026-03-11
 ### Added
-- `pg-dash query-stats export <connection>` — Export query statistics to JSON file (requires PG 18+)
-- `pg-dash query-stats import <file> <connection>` — Import query statistics from file to local DB (requires PG 18+)
-- Enables "production query plans without production data" workflow: export stats from prod, import to dev, then EXPLAIN locally
+- **AI-Powered Database Context**:
+  - `fetch_db_context` MCP tool — Get comprehensive database context (schema, tables, columns, indexes, PK/FK, business intent, and health) in a single call. Designed for AI agents to quickly understand the whole DB.
+  - `pg_dash_query_natural` MCP tool — Query database using natural language. LLM converts your question to SQL (supports OpenAI, Anthropic, Google, Ollama). Examples: "show me slow queries last hour", "find missing indexes", "what's the health score", "list all tables with their sizes"
+- **AI-Powered CI Enhancements**:
+  - `pg-dash check --ai-suggest`: Generates AI-powered fix suggestions for health issues (Markdown compatible).
+  - `pg-dash diff-env --ai-explain`: Uses LLM to explain the business impact of schema differences.
+  - `ci_health_summary` MCP tool: Returns a one-sentence summary and prioritized issue list for CI systems.
+- Configure LLM via environment variables: `PG_DASH_LLM_PROVIDER`, `PG_DASH_LLM_API_KEY`, `PG_DASH_LLM_MODEL`, `PG_DASH_LLM_BASE_URL`
 
 ## [0.5.1] - 2026-03-05
 ### Changed

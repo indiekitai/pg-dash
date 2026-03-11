@@ -19,6 +19,9 @@ import { getBloatReport } from "./server/bloat.js";
 import { getAutovacuumReport } from "./server/autovacuum.js";
 import { getLockReport } from "./server/locks.js";
 import { getConfigReport } from "./server/config-checker.js";
+import { getDbContext } from "./server/queries/db-context.js";
+import { gradeFromScore } from "./server/advisor.js";
+import { executeNaturalQuery, getLLMConfig, generateAISuggestions } from "./server/llm.js";
 import Database from "better-sqlite3";
 import path from "node:path";
 import os from "node:os";
@@ -422,6 +425,215 @@ server.tool("pg_dash_config_check", "Audit PostgreSQL configuration settings and
     return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
   }
 });
+
+server.tool(
+  "fetch_db_context",
+  "Get comprehensive database context for AI agents: table structures, columns, types, primary/foreign keys, indexes, business intent inference, and health summary",
+  {},
+  async () => {
+    try {
+      // Get db context (tables, columns, indexes, constraints)
+      const dbContext = await getDbContext(pool);
+      
+      // Get health report for summary
+      const healthReport = await getAdvisorReport(pool, longQueryThreshold);
+      
+      // Build comprehensive response
+      const result = {
+        // Database overview
+        database: dbContext.database,
+        
+        // Tables with full structure
+        tables: dbContext.tables.map(table => ({
+          schema: table.schema,
+          name: table.name,
+          description: table.description,
+          rowCount: table.rowCount,
+          totalSize: table.totalSize,
+          businessIntent: table.businessIntent,
+          columnCount: table.columns.length,
+          columns: table.columns.map(col => ({
+            name: col.name,
+            type: col.type,
+            nullable: col.nullable,
+            isPrimaryKey: col.isPrimaryKey,
+            isForeignKey: col.isForeignKey,
+            references: col.isForeignKey ? {
+              table: col.referencedTable,
+              column: col.referencedColumn,
+            } : null,
+          })),
+          primaryKeys: table.primaryKeys,
+          foreignKeys: table.foreignKeys,
+          indexCount: table.indexes.length,
+        })),
+        
+        // Index summary per table
+        indexSummary: dbContext.indexSummary,
+        
+        // Health summary
+        health: {
+          score: healthReport.score,
+          grade: healthReport.grade,
+          categoryScores: Object.fromEntries(
+            Object.entries(healthReport.breakdown).map(([cat, data]) => [cat, { grade: data.grade, score: data.score }])
+          ),
+          issueCount: healthReport.issues.length,
+          criticalIssues: healthReport.issues.filter(i => i.severity === "critical").length,
+          warningIssues: healthReport.issues.filter(i => i.severity === "warning").length,
+          topIssues: healthReport.issues.slice(0, 5).map(i => ({
+            severity: i.severity,
+            title: i.title,
+            category: i.category,
+          })),
+        },
+        
+        // Metadata
+        generatedAt: new Date().toISOString(),
+        version: pkg.version,
+      };
+      
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+// --- Natural Language Query Tool ---
+server.tool(
+  "pg_dash_query_natural",
+  "Query database using natural language. The LLM converts your question to SQL and returns results. Example: 'show me slow queries last hour', 'find missing indexes', 'what's the health score', 'list all tables with their sizes'",
+  {
+    query: z.string().describe("Natural language query (e.g., 'show me the top 10 largest tables')"),
+    includeSql: z.boolean().optional().default(true).describe("Include the generated SQL in the response"),
+  },
+  async ({ query, includeSql }) => {
+    const llmConfig = getLLMConfig();
+    
+    // Check if LLM is configured
+    if (!llmConfig.apiKey) {
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            error: "LLM not configured",
+            message: "Please set PG_DASH_LLM_API_KEY environment variable (or OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY)",
+            usage: {
+              openai: "export PG_DASH_LLM_PROVIDER=openai && export PG_DASH_LLM_API_KEY=sk-...",
+              anthropic: "export PG_DASH_LLM_PROVIDER=anthropic && export ANTHROPIC_API_KEY=sk-ant-...",
+              google: "export PG_DASH_LLM_PROVIDER=google && export GOOGLE_API_KEY=...",
+              ollama: "export PG_DASH_LLM_PROVIDER=ollama && export PG_DASH_LLM_BASE_URL=http://localhost:11434",
+            },
+            provider: llmConfig.provider,
+            model: llmConfig.model || "default",
+          }, null, 2)
+        }],
+        isError: true
+      };
+    }
+
+    try {
+      const result = await executeNaturalQuery(pool, query, llmConfig);
+      
+      if (result.error) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              error: result.error,
+              generatedSql: includeSql ? result.sql : undefined,
+              message: "Failed to execute natural language query"
+            }, null, 2)
+          }],
+          isError: true
+        };
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            answer: result.answer,
+            generatedSql: includeSql ? result.sql : undefined,
+            rowCount: result.result?.rowCount,
+            columns: result.result?.columns,
+            data: result.result?.rows,
+          }, null, 2)
+        }]
+      };
+    } catch (err: any) {
+      return {
+        content: [{ type: "text", text: `Error: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
+
+// --- CI Health Summary Tool ---
+server.tool(
+  "ci_health_summary",
+  "Generate a CI-friendly health summary with AI-powered prioritization. Input: health check result (from pg_dash_health). Output: one-sentence summary + prioritized issue list. Perfect for GitHub Actions/GitLab CI integration.",
+  {
+    healthReport: z.string().describe("JSON string of health report from pg_dash_health tool"),
+  },
+  async ({ healthReport }) => {
+    try {
+      const report = JSON.parse(healthReport);
+      
+      if (!report.score || !report.issues) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              error: "Invalid health report format",
+              message: "Provide the JSON output from pg_dash_health tool"
+            }, null, 2)
+          }],
+          isError: true
+        };
+      }
+
+      const llmConfig = getLLMConfig();
+      const aiResult = await generateAISuggestions(report, llmConfig);
+
+      // Build CI-friendly output
+      const summary = {
+        // One-sentence summary
+        summary: aiResult.summary,
+        // Health score
+        score: report.score,
+        grade: report.grade,
+        // Prioritized issues (already sorted by severity)
+        prioritizedIssues: aiResult.suggestions.map((s, idx) => ({
+          priority: idx + 1,
+          severity: s.priority,
+          issue: s.issue,
+          suggestion: s.suggestion,
+        })),
+        // Metadata
+        totalIssues: report.issues.length,
+        criticalCount: report.issues.filter((i: any) => i.severity === "critical").length,
+        warningCount: report.issues.filter((i: any) => i.severity === "warning").length,
+        // For CI exit code guidance
+        wouldFailCheck: report.score < 70,
+      };
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(summary, null, 2)
+        }]
+      };
+    } catch (err: any) {
+      return {
+        content: [{ type: "text", text: `Error: ${err.message}` }],
+        isError: true
+      };
+    }
+  }
+);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
