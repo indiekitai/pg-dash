@@ -41,13 +41,41 @@ describe("isSafeFix", () => {
     });
   });
 
+  describe("batch safe operations", () => {
+    it.each([
+      "VACUUM table1; VACUUM table2; VACUUM table3",
+      "VACUUM ANALYZE t1; VACUUM ANALYZE t2",
+      "ANALYZE t1; ANALYZE t2; ANALYZE t3;",
+      "REINDEX TABLE t1; REINDEX TABLE t2",
+    ])("allows batch safe: %s", (sql) => {
+      expect(isSafeFix(sql)).toBe(true);
+    });
+  });
+
+  describe("ALTER TABLE SET (storage params)", () => {
+    it.each([
+      "ALTER TABLE mytable SET (autovacuum_vacuum_threshold = 5, autovacuum_vacuum_scale_factor = 0.1)",
+      "ALTER TABLE public.small_table SET (autovacuum_vacuum_threshold = 10)",
+    ])("allows: %s", (sql) => {
+      expect(isSafeFix(sql)).toBe(true);
+    });
+
+    it.each([
+      "ALTER TABLE users DROP COLUMN id",
+      "ALTER TABLE users ADD COLUMN evil text",
+      "ALTER TABLE users RENAME TO hacked",
+    ])("rejects: %s", (sql) => {
+      expect(isSafeFix(sql)).toBe(false);
+    });
+  });
+
   describe("multi-statement injection", () => {
     it.each([
       "VACUUM; DROP TABLE users;",
       "VACUUM; DROP TABLE users",
       "ANALYZE; DELETE FROM users;",
       "VACUUM\n; DROP TABLE users",
-    ])("rejects multi-statement: %s", (sql) => {
+    ])("rejects multi-statement with unsafe: %s", (sql) => {
       expect(isSafeFix(sql)).toBe(false);
     });
   });

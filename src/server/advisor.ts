@@ -143,11 +143,13 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
     try {
       const r = await client.query(`
         SELECT schemaname, relname, n_dead_tup, n_live_tup,
-          CASE WHEN n_live_tup > 0 THEN round(n_dead_tup::numeric / n_live_tup * 100, 1) ELSE 0 END AS dead_pct,
+          CASE WHEN (n_live_tup + n_dead_tup) > 0
+            THEN round(n_dead_tup::numeric / (n_live_tup + n_dead_tup) * 100, 1) ELSE 0 END AS dead_pct,
           pg_size_pretty(pg_total_relation_size(relid)) AS size
         FROM pg_stat_user_tables
-        WHERE n_live_tup > 1000 AND n_dead_tup::float / GREATEST(n_live_tup, 1) > 0.1
-        ORDER BY n_dead_tup DESC LIMIT 10
+        WHERE (n_live_tup + n_dead_tup) > 0
+          AND n_dead_tup::float / GREATEST(n_live_tup + n_dead_tup, 1) > 0.1
+        ORDER BY n_dead_tup::float / GREATEST(n_live_tup + n_dead_tup, 1) DESC LIMIT 20
       `);
       for (const row of r.rows) {
         const pct = parseFloat(row.dead_pct);
@@ -156,7 +158,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
           severity: pct > 30 ? "critical" : "warning",
           category: "performance",
           title: `Table bloat on ${row.relname} (${row.dead_pct}% dead)`,
-          description: `${row.schemaname}.${row.relname} has ${Number(row.n_dead_tup).toLocaleString()} dead tuples (${row.dead_pct}% of ${Number(row.n_live_tup).toLocaleString()} live rows). Size: ${row.size}.`,
+          description: `${row.schemaname}.${row.relname} has ${Number(row.n_dead_tup).toLocaleString()} dead tuples (${row.dead_pct}% of ${(Number(row.n_live_tup) + Number(row.n_dead_tup)).toLocaleString()} total rows). Size: ${row.size}.`,
           fix: `VACUUM FULL ${row.schemaname}.${row.relname};`,
           impact: "Dead tuples waste storage and degrade scan performance.",
           effort: pct > 30 ? "moderate" : "quick",
@@ -221,6 +223,18 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
             effort: "moderate",
           });
         }
+      } else {
+        // pg_stat_statements not installed — this is a significant observability gap
+        issues.push({
+          id: `perf-no-pg-stat-statements`,
+          severity: "warning",
+          category: "performance",
+          title: `pg_stat_statements extension not installed`,
+          description: `The pg_stat_statements extension is not installed. Without it, slow query detection, query regression analysis, and query performance trending are all unavailable.`,
+          fix: `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;\n-- Also add to shared_preload_libraries in postgresql.conf and restart`,
+          impact: "No visibility into slow queries, query regressions, or performance trends. You are flying blind on query performance.",
+          effort: "moderate",
+        });
       }
     } catch (err) {
       console.error("[advisor] Error checking slow queries:", (err as Error).message); skipped.push("slow queries: " + (err as Error).message);
@@ -394,7 +408,7 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
       console.error("[advisor] Error checking missing primary keys:", (err as Error).message); skipped.push("missing primary keys: " + (err as Error).message);
     }
 
-    // Unused indexes (idx_scan = 0, size > 1MB)
+    // Unused indexes (idx_scan = 0, size > 8KB)
     try {
       const r = await client.query(`
         SELECT schemaname, relname, indexrelname, idx_scan,
@@ -403,8 +417,8 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
         FROM pg_stat_user_indexes
         WHERE idx_scan = 0
           AND indexrelname NOT LIKE '%_pkey'
-          AND pg_relation_size(indexrelid) > 1048576
-        ORDER BY pg_relation_size(indexrelid) DESC LIMIT 10
+          AND pg_relation_size(indexrelid) > 8192
+        ORDER BY pg_relation_size(indexrelid) DESC LIMIT 20
       `);
       for (const row of r.rows) {
         issues.push({
@@ -586,6 +600,36 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
       }
     } catch (err) {
       console.error("[advisor] Error checking autovacuum:", (err as Error).message); skipped.push("autovacuum: " + (err as Error).message);
+    }
+
+    // Autovacuum threshold too high for small tables
+    try {
+      const r = await client.query(`
+        SELECT schemaname, relname, n_live_tup, n_dead_tup,
+          last_autovacuum, last_vacuum
+        FROM pg_stat_user_tables
+        WHERE n_live_tup < 50
+          AND n_dead_tup > 0
+          AND last_autovacuum IS NULL
+          AND last_vacuum IS NULL
+      `);
+      if (r.rows.length >= 5) {
+        // Aggregate into a single issue when many small tables are affected
+        const tables = r.rows.map((row: any) => row.relname as string);
+        const totalDead = r.rows.reduce((sum: number, row: any) => sum + parseInt(row.n_dead_tup, 10), 0);
+        issues.push({
+          id: `maint-autovacuum-small-tables`,
+          severity: "warning",
+          category: "maintenance",
+          title: `${r.rows.length} small tables never autovacuumed (default threshold=50 too high)`,
+          description: `${r.rows.length} tables with fewer than 50 live rows have never been autovacuumed because the default autovacuum_vacuum_threshold (50) exceeds their row count. Total dead tuples: ${totalDead}. Tables: ${tables.slice(0, 10).join(", ")}${tables.length > 10 ? `, ... and ${tables.length - 10} more` : ""}.`,
+          fix: `-- Lower per-table threshold for small tables:\n${tables.slice(0, 5).map(t => `ALTER TABLE ${t} SET (autovacuum_vacuum_threshold = 5, autovacuum_vacuum_scale_factor = 0.1);`).join("\n")}`,
+          impact: "Dead tuples accumulate on small tables indefinitely, causing bloat.",
+          effort: "moderate",
+        });
+      }
+    } catch (err) {
+      console.error("[advisor] Error checking autovacuum small tables:", (err as Error).message); skipped.push("autovacuum small tables: " + (err as Error).message);
     }
 
     // shared_buffers / work_mem check
@@ -791,23 +835,14 @@ export function unignoreIssue(issueId: string): void {
 
 // Allowed SQL operations for the fix endpoint
 
-export function isSafeFix(sql: string): boolean {
-  const trimmed = sql.trim();
-  if (!trimmed) return false;
-
-  // Reject multi-statement SQL (split on semicolons, ignore trailing)
-  const statements = trimmed.replace(/;\s*$/, "").split(";").map(s => s.trim()).filter(Boolean);
-  if (statements.length !== 1) return false;
-
-  const upper = statements[0].toUpperCase();
-
+function isSafeSingleStatement(upper: string): boolean {
   // EXPLAIN ANALYZE — only allow if followed by SELECT
   if (upper.startsWith("EXPLAIN ANALYZE")) {
     const afterExplain = upper.replace(/^EXPLAIN\s+ANALYZE\s+/, "").trimStart();
     return afterExplain.startsWith("SELECT");
   }
 
-  // Simple prefix allowlist for single statements
+  // Simple prefix allowlist
   const ALLOWED_PREFIXES = [
     "VACUUM",
     "ANALYZE",
@@ -818,5 +853,22 @@ export function isSafeFix(sql: string): boolean {
     "SELECT PG_CANCEL_BACKEND(",
   ];
 
+  // ALTER TABLE — only allow SET (storage_parameter)
+  if (upper.startsWith("ALTER TABLE")) {
+    return /^ALTER TABLE\s+\S+\s+SET\s*\(/i.test(upper);
+  }
+
   return ALLOWED_PREFIXES.some((p) => upper.startsWith(p));
+}
+
+export function isSafeFix(sql: string): boolean {
+  const trimmed = sql.trim();
+  if (!trimmed) return false;
+
+  // Split on semicolons, ignore trailing
+  const statements = trimmed.replace(/;\s*$/, "").split(";").map(s => s.trim()).filter(Boolean);
+  if (statements.length === 0) return false;
+
+  // Allow multiple statements if every statement is safe (batch fix support)
+  return statements.every(stmt => isSafeSingleStatement(stmt.toUpperCase()));
 }

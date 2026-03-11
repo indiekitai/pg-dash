@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.1] - 2026-03-11
+### Added
+- **Batch safe operations**: `pg_dash_fix` now supports multiple statements separated by semicolons (e.g., `VACUUM table1; VACUUM table2; ANALYZE table3`)
+- **ALTER TABLE SET support**: Allowed storage parameter changes (e.g., `ALTER TABLE t SET (autovacuum_vacuum_threshold = 5)`)
+- **pg_stat_statements detection**: Advisor now warns when the extension is not installed (critical for slow query visibility)
+- **Small table autovacuum**: New check for tables with <50 rows that never get autovacuumed due to default threshold
+
+### Fixed
+- **Dead tuple calculation**: Fixed percentage calculation to use total rows (live + dead) instead of just live rows
+- **Unused index threshold**: Reduced from 1MB to 8KB to catch smaller unused indexes
+- **pg_dash_explain**: Fixed parameter name from `query` to `sql`
+
 ## [0.7.0] - 2026-03-11
 ### Added
 - **AI-Powered Database Context**:

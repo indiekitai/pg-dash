@@ -117,14 +117,25 @@ server.tool("pg_dash_schema_changes", "Get recent schema changes", {}, async () 
   }
 });
 
-server.tool("pg_dash_fix", "Execute a safe fix (VACUUM, ANALYZE, REINDEX, etc.)", { sql: z.string().describe("SQL to execute (must be a safe operation)") }, async ({ sql }) => {
+server.tool("pg_dash_fix", "Execute safe fix(es) — supports batch: multiple VACUUM/ANALYZE/REINDEX statements separated by semicolons", { sql: z.string().describe("SQL to execute (must be safe operations; multiple statements separated by ; are supported)") }, async ({ sql }) => {
   try {
-    if (!isSafeFix(sql)) return { content: [{ type: "text", text: "Operation not allowed. Only VACUUM, ANALYZE, REINDEX, CREATE/DROP INDEX CONCURRENTLY, pg_terminate_backend, pg_cancel_backend, and EXPLAIN ANALYZE are permitted." }], isError: true };
+    if (!isSafeFix(sql)) return { content: [{ type: "text", text: "Operation not allowed. Only VACUUM, ANALYZE, REINDEX, CREATE/DROP INDEX CONCURRENTLY, ALTER TABLE SET, pg_terminate_backend, pg_cancel_backend, and EXPLAIN ANALYZE are permitted." }], isError: true };
     const client = await pool.connect();
     try {
+      const statements = sql.trim().replace(/;\s*$/, "").split(";").map(s => s.trim()).filter(Boolean);
       const start = Date.now();
-      const result = await client.query(sql);
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, duration: Date.now() - start, rowCount: result.rowCount, rows: result.rows || [] }, null, 2) }] };
+      const results: { sql: string; ok: boolean; error?: string }[] = [];
+      for (const stmt of statements) {
+        try {
+          await client.query(stmt);
+          results.push({ sql: stmt, ok: true });
+        } catch (err: any) {
+          results.push({ sql: stmt, ok: false, error: err.message });
+        }
+      }
+      const succeeded = results.filter(r => r.ok).length;
+      const failed = results.filter(r => !r.ok).length;
+      return { content: [{ type: "text", text: JSON.stringify({ ok: failed === 0, duration: Date.now() - start, total: statements.length, succeeded, failed, results }, null, 2) }] };
     } finally {
       client.release();
     }
@@ -145,15 +156,15 @@ server.tool("pg_dash_alerts", "Get alert history", {}, async () => {
 
 // --- New tools ---
 
-server.tool("pg_dash_explain", "Run EXPLAIN ANALYZE on a SELECT query (read-only, wrapped in BEGIN/ROLLBACK)", { query: z.string().describe("SELECT query to explain") }, async ({ query }) => {
+server.tool("pg_dash_explain", "Run EXPLAIN ANALYZE on a SELECT query (read-only, wrapped in BEGIN/ROLLBACK)", { sql: z.string().describe("SELECT query to explain") }, async ({ sql }) => {
   try {
-    if (!/^\s*SELECT\b/i.test(query)) return { content: [{ type: "text", text: "Error: Only SELECT queries are allowed" }], isError: true };
+    if (!/^\s*SELECT\b/i.test(sql)) return { content: [{ type: "text", text: "Error: Only SELECT queries are allowed" }], isError: true };
     const client = await pool.connect();
     try {
       await client.query("SET statement_timeout = '30s'");
       await client.query("BEGIN");
       try {
-        const r = await client.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${query}`);
+        const r = await client.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`);
         await client.query("ROLLBACK");
         await client.query("RESET statement_timeout");
         return { content: [{ type: "text", text: JSON.stringify(r.rows[0]["QUERY PLAN"], null, 2) }] };
