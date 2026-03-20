@@ -30,6 +30,9 @@ npx @indiekitai/pg-dash watch-locks postgres://...
 # Analyze slow queries from pg_stat_statements
 npx @indiekitai/pg-dash slow-queries postgres://... --limit 20 --min-calls 5
 
+# Analyze table/index bloat
+npx @indiekitai/pg-dash bloat postgres://...
+
 # Compare two environments (local vs staging)
 npx @indiekitai/pg-dash diff-env --source postgres://localhost/db --target postgres://staging/db
 

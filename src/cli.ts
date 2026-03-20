@@ -80,6 +80,7 @@ Usage:
   pg-dash query-stats import <file> <connection>       Import query statistics (PG 18+)
   pg-dash slow-queries <connection>                    Analyze slow queries from pg_stat_statements
   pg-dash slow-queries <connection> --limit 20 --min-calls 5
+  pg-dash bloat <connection>                           Analyze table/index bloat
   pg-dash --host localhost --user postgres --db mydb
 
 Options:
@@ -122,7 +123,7 @@ Environment variables:
   process.exit(0);
 }
 
-const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env", "explain", "watch-locks", "query-stats", "slow-queries"];
+const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env", "explain", "watch-locks", "query-stats", "slow-queries", "bloat"];
 const subcommand = positionals[0];
 
 function isValidConnectionString(s: string): boolean {
@@ -982,6 +983,134 @@ if (subcommand === "check" || subcommand === "health") {
 
       console.log("\n" + "═".repeat(100));
       console.log(`\nTip: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;\n`);
+    }
+
+    await pool.end();
+  } catch (err: any) {
+    console.error(`Error: ${err.message}`);
+    await pool.end();
+    process.exit(1);
+  }
+
+} else if (subcommand === "bloat") {
+  // Usage: pg-dash bloat <connection> [--threshold 10] [--json]
+  const connStr = positionals[1] || resolveConnectionString(1);
+  if (!connStr) {
+    console.error("Error: provide a connection string.\n\nUsage: pg-dash bloat <connection> [--threshold 10] [--json]");
+    process.exit(1);
+  }
+
+  const threshold = parseInt(values.threshold || "10", 10); // bloat percentage threshold
+  const outputJson = values.json || false;
+
+  const { Pool } = await import("pg");
+  const pool = new Pool({ connectionString: connStr, connectionTimeoutMillis: 10000 });
+
+  try {
+    // Query for table bloat using pg_stat_user_tables (no extension needed)
+    const res = await pool.query(`
+      SELECT
+        schemaname,
+        relname,
+        n_live_tup,
+        n_dead_tup,
+        n_dead_tup::float / NULLIF(n_live_tup + n_dead_tup, 0) * 100 AS dead_tuple_pct,
+        CASE WHEN n_live_tup + n_dead_tup > 0 THEN 
+          ROUND(100.0 * n_dead_tup / (n_live_tup + n_dead_tup), 1) 
+        ELSE 0 END AS bloat_pct,
+        last_vacuum,
+        last_autovacuum,
+        vacuum_count,
+        autovacuum_count
+      FROM pg_stat_user_tables
+      WHERE n_dead_tup > 0
+      ORDER BY bloat_pct DESC, n_dead_tup DESC
+      LIMIT 50
+    `);
+
+    // Get index bloat info
+    const idxRes = await pool.query(`
+      SELECT
+        schemaname,
+        relname,
+        idx_scan,
+        idx_tup_fetch,
+        idx_tup_read,
+        pg_size_pretty(pg_relation_size(schemaname||'.'||relname)) AS index_size
+      FROM pg_stat_user_indexes
+      WHERE idx_scan = 0
+        AND relname NOT LIKE '%pkey%'
+        AND relname NOT LIKE '%unique%'
+      ORDER BY pg_relation_size(schemaname||'.'||relname) DESC
+      LIMIT 20
+    `);
+
+    // Also check for tables that never get vacuumed
+    const neverVacuumed = await pool.query(`
+      SELECT
+        schemaname,
+        relname,
+        n_live_tup,
+        n_dead_tup,
+        last_autovacuum,
+        last_vacuum
+      FROM pg_stat_user_tables
+      WHERE (last_autovacuum IS NULL AND last_vacuum IS NULL)
+        AND n_live_tup > 10000
+      ORDER BY n_live_tup DESC
+      LIMIT 20
+    `);
+
+    function fmtNum(n: number | bigint): string { return n?.toLocaleString() || "0"; }
+    function fmtDate(d: string | null): string { return d ? d.slice(0, 19).replace("T", " ") : "never"; }
+
+    if (outputJson) {
+      console.log(JSON.stringify({
+        generatedAt: new Date().toISOString(),
+        threshold,
+        bloatedTables: res.rows,
+        unusedIndexes: idxRes.rows,
+        neverVacuumed: neverVacuumed.rows
+      }, null, 2));
+    } else {
+      console.log(`\npg-dash bloat analysis (threshold: ${threshold}%)\n`);
+      console.log("═".repeat(100));
+
+      // Bloated tables
+      const bloatedTables = res.rows.filter(r => parseFloat(r.bloat_pct || "0") >= threshold);
+      if (bloatedTables.length > 0) {
+        console.log(`\n🔴 Bloated Tables (bloat >= ${threshold}%):`);
+        for (const r of bloatedTables) {
+          console.log(`\n  ${r.relname} (${r.schemaname})`);
+          console.log(`    Dead tuples: ${fmtNum(r.n_dead_tup)} (${r.bloat_pct}%)`);
+          console.log(`    Live tuples: ${fmtNum(r.n_live_tup)}`);
+          console.log(`    Last vacuum: ${fmtDate(r.last_vacuum)} | autovacuum: ${fmtDate(r.last_autovacuum)}`);
+        }
+      } else {
+        console.log(`\n✅ No tables with bloat >= ${threshold}%`);
+      }
+
+      // Unused indexes
+      if (idxRes.rows.length > 0) {
+        console.log(`\n\n🔵 Unused Indexes (idx_scan = 0):`);
+        for (const r of idxRes.rows.slice(0, 10)) {
+          console.log(`  ${r.relname} (${r.index_size})`);
+        }
+        if (idxRes.rows.length > 10) {
+          console.log(`  ... and ${idxRes.rows.length - 10} more`);
+        }
+      }
+
+      // Never vacuumed
+      if (neverVacuumed.rows.length > 0) {
+        console.log(`\n\n⚠️ Tables Never Vacuumed (>10K rows):`);
+        for (const r of neverVacuumed.rows) {
+          console.log(`  ${r.relname}: ${fmtNum(r.n_live_tup)} rows, ${fmtNum(r.n_dead_tup)} dead`);
+        }
+      }
+
+      console.log("\n" + "═".repeat(100));
+      console.log(`\nTip: Run VACUUM ANALYZE table_name; to clean up bloat\n`);
     }
 
     await pool.end();

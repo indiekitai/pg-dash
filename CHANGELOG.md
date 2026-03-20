@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0] - 2026-03-20
+### Added
+- **Table/index bloat analysis**: New `pg-dash bloat` command
+  - Detect bloated tables by dead tuple percentage
+  - Find unused indexes (idx_scan = 0)
+  - Identify tables that never get vacuumed
+  - No extension required (uses pg_stat_user_tables)
+
 ## [0.8.0] - 2026-03-20
 ### Added
 - **Slow query analysis**: New `pg-dash slow-queries` command to analyze slow queries from pg_stat_statements
