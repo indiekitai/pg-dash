@@ -1028,20 +1028,19 @@ if (subcommand === "check" || subcommand === "health") {
       LIMIT 50
     `);
 
-    // Get index bloat info
+    // Get unused indexes (exclude PK and unique indexes)
     const idxRes = await pool.query(`
       SELECT
         schemaname,
-        relname,
+        indexrelname as index_name,
         idx_scan,
-        idx_tup_fetch,
-        idx_tup_read,
-        pg_size_pretty(pg_relation_size(schemaname||'.'||relname)) AS index_size
+        pg_size_pretty(pg_relation_size(indexrelid)) AS index_size
       FROM pg_stat_user_indexes
       WHERE idx_scan = 0
-        AND relname NOT LIKE '%pkey%'
-        AND relname NOT LIKE '%unique%'
-      ORDER BY pg_relation_size(schemaname||'.'||relname) DESC
+        AND indexrelname NOT LIKE '%_pkey'
+        AND indexrelname NOT LIKE '%_key'
+        AND indexrelname NOT LIKE '%_unique'
+      ORDER BY pg_relation_size(indexrelid) DESC
       LIMIT 20
     `);
 
@@ -1094,7 +1093,7 @@ if (subcommand === "check" || subcommand === "health") {
       if (idxRes.rows.length > 0) {
         console.log(`\n\n🔵 Unused Indexes (idx_scan = 0):`);
         for (const r of idxRes.rows.slice(0, 10)) {
-          console.log(`  ${r.relname} (${r.index_size})`);
+          console.log(`  ${r.index_name} (${r.index_size})`);
         }
         if (idxRes.rows.length > 10) {
           console.log(`  ... and ${idxRes.rows.length - 10} more`);
