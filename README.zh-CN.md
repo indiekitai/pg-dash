@@ -27,6 +27,9 @@ npx @indiekitai/pg-dash explain "SELECT * FROM orders WHERE user_id = 1" postgre
 # 实时锁监控（Ctrl+C 退出）
 npx @indiekitai/pg-dash watch-locks postgres://...
 
+# 慢查询分析（基于 pg_stat_statements）
+npx @indiekitai/pg-dash slow-queries postgres://... --limit 20 --min-calls 5
+
 # 对比两个环境（本地 vs 预发）
 npx @indiekitai/pg-dash diff-env --source postgres://localhost/db --target postgres://staging/db
 

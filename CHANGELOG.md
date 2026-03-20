@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.0] - 2026-03-20
+### Added
+- **Slow query analysis**: New `pg-dash slow-queries` command to analyze slow queries from pg_stat_statements
+  - Sort by: total time, mean time, or call frequency
+  - Filter by minimum call count
+  - Show cache hit ratio, temp blocks, execution stats
+  - JSON output for automation
+
+### Changed
+- Improved CLI help text
+
 ## [0.7.1] - 2026-03-11
 ### Added
 - **Batch safe operations**: `pg_dash_fix` now supports multiple statements separated by semicolons (e.g., `VACUUM table1; VACUUM table2; ANALYZE table3`)

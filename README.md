@@ -27,6 +27,9 @@ npx @indiekitai/pg-dash explain "SELECT * FROM orders WHERE user_id = 1" postgre
 # Real-time lock + long-query monitor (Ctrl+C to exit)
 npx @indiekitai/pg-dash watch-locks postgres://...
 
+# Analyze slow queries from pg_stat_statements
+npx @indiekitai/pg-dash slow-queries postgres://... --limit 20 --min-calls 5
+
 # Compare two environments (local vs staging)
 npx @indiekitai/pg-dash diff-env --source postgres://localhost/db --target postgres://staging/db
 

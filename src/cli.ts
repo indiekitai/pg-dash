@@ -35,6 +35,8 @@ const { values, positionals } = parseArgs({
     "snapshot-interval": { type: "string" },
     "query-stats-interval": { type: "string" },
     "long-query-threshold": { type: "string" },
+    limit: { type: "string" },
+    "min-calls": { type: "string" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
     threshold: { type: "string" },
@@ -76,6 +78,8 @@ Usage:
   pg-dash schema-diff <connection-string>               Show latest schema changes
   pg-dash query-stats export <connection>               Export query statistics (PG 18+)
   pg-dash query-stats import <file> <connection>       Import query statistics (PG 18+)
+  pg-dash slow-queries <connection>                    Analyze slow queries from pg_stat_statements
+  pg-dash slow-queries <connection> --limit 20 --min-calls 5
   pg-dash --host localhost --user postgres --db mydb
 
 Options:
@@ -118,7 +122,7 @@ Environment variables:
   process.exit(0);
 }
 
-const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env", "explain", "watch-locks", "query-stats"];
+const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env", "explain", "watch-locks", "query-stats", "slow-queries"];
 const subcommand = positionals[0];
 
 function isValidConnectionString(s: string): boolean {
@@ -891,6 +895,102 @@ if (subcommand === "check" || subcommand === "health") {
     process.exit(1);
   }
 
+} else if (subcommand === "slow-queries") {
+  // Usage: pg-dash slow-queries <connection> [--limit 20] [--sort total|time|calls] [--min-calls 5] [--json]
+  const connStr = positionals[1] || resolveConnectionString(1);
+  if (!connStr) {
+    console.error("Error: provide a connection string.\n\nUsage: pg-dash slow-queries <connection> [--limit 20] [--sort total|time|calls] [--min-calls 5] [--json]");
+    process.exit(1);
+  }
+
+  const limit = parseInt(values.limit || values.threshold || "20", 10);
+  const sortBy = values.format || "total";
+  const minCalls = parseInt(values["min-calls"] || values["long-query-threshold"] || "5", 10);
+  const outputJson = values.json || false;
+
+  const { Pool } = await import("pg");
+  const pool = new Pool({ connectionString: connStr, connectionTimeoutMillis: 10000 });
+
+  try {
+    const extCheck = await pool.query(`SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements'`);
+    if (extCheck.rows.length === 0) {
+      console.error("Error: pg_stat_statements extension is not installed.");
+      console.error("  Run: CREATE EXTENSION pg_stat_statements;");
+      process.exit(1);
+    }
+
+    let orderCol = "total_exec_time";
+    if (sortBy === "time") orderCol = "mean_exec_time";
+    else if (sortBy === "calls") orderCol = "calls";
+
+    const res = await pool.query(`
+      SELECT query, calls, total_exec_time, mean_exec_time, stddev_exec_time, rows,
+             shared_blks_hit, shared_blks_read, shared_blks_dirtied, shared_blks_written,
+             temp_blks_read, temp_blks_written
+      FROM pg_stat_statements
+      WHERE calls >= $1
+      ORDER BY ${orderCol} DESC
+      LIMIT $2
+    `, [minCalls, limit]);
+
+    const totalTimeRes = await pool.query(`SELECT SUM(total_exec_time) as total FROM pg_stat_statements WHERE calls >= $1`, [minCalls]);
+    const totalTime = totalTimeRes.rows[0]?.total || 0;
+
+    function fmtTime(ms: number): string {
+      if (ms < 1) return `${ms.toFixed(2)}ms`;
+      if (ms < 1000) return `${ms.toFixed(1)}ms`;
+      if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+      return `${(ms / 60000).toFixed(1)}m`;
+    }
+
+    function fmtNum(n: number | bigint): string { return n.toLocaleString(); }
+    function truncateQuery(q: string, maxLen = 120): string {
+      const cleaned = q.replace(/\s+/g, " ").trim();
+      return cleaned.length <= maxLen ? cleaned : cleaned.slice(0, maxLen) + "...";
+    }
+
+    if (outputJson) {
+      console.log(JSON.stringify({
+        generatedAt: new Date().toISOString(),
+        sortBy, minCalls, limit,
+        totalQueryTime: totalTime,
+        queries: res.rows.map(r => ({
+          query: r.query,
+          calls: Number(r.calls),
+          totalTimeMs: Math.round(r.total_exec_time),
+          meanTimeMs: Math.round(r.mean_exec_time),
+          rows: Number(r.rows),
+          cacheHitRatio: r.shared_blks_hit + r.shared_blks_read > 0
+            ? Math.round(100 * r.shared_blks_hit / (r.shared_blks_hit + r.shared_blks_read)) : null
+        }))
+      }, null, 2));
+    } else {
+      console.log(`\npg-dash slow-queries (sorted by: ${sortBy}, min calls: ${minCalls})\n`);
+      console.log("═".repeat(100));
+
+      for (let i = 0; i < res.rows.length; i++) {
+        const r = res.rows[i];
+        const pct = totalTime > 0 ? (r.total_exec_time / totalTime * 100).toFixed(1) : "0.0";
+        const cacheHit = r.shared_blks_hit + r.shared_blks_read > 0
+          ? (100 * r.shared_blks_hit / (r.shared_blks_hit + r.shared_blks_read)).toFixed(1) : "N/A";
+
+        console.log(`\n#${i + 1} (${pct}% of total time)`);
+        console.log(`  Calls: ${fmtNum(r.calls)} | Total: ${fmtTime(r.total_exec_time)} | Mean: ${fmtTime(r.mean_exec_time)}`);
+        console.log(`  Rows: ${fmtNum(r.rows)} | Cache hit: ${cacheHit}%`);
+        console.log(`  Query: ${truncateQuery(r.query)}`);
+      }
+
+      console.log("\n" + "═".repeat(100));
+      console.log(`\nTip: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;\n`);
+    }
+
+    await pool.end();
+  } catch (err: any) {
+    console.error(`Error: ${err.message}`);
+    await pool.end();
+    process.exit(1);
+  }
+
 } else {
   // Check for unknown subcommands before treating positional as connection string
   if (subcommand && !isValidConnectionString(subcommand) && KNOWN_SUBCOMMANDS.indexOf(subcommand) === -1) {
@@ -936,4 +1036,5 @@ if (subcommand === "check" || subcommand === "health") {
     token,
     webhook,
   });
+
 }
