@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.11.0] - 2026-04-23
+### Changed
+- **Consolidation reversal**: reverted the short-lived Phase C strip (commits 4e3983e, a73df3e, 1a56d8e). pg-dash is again a single full-featured tool: Web Dashboard + CLI + MCP server. pg-health, which briefly split off the CLI/MCP side, has been merged back; its functionality was always a subset of pg-dash.
+- README removes `pg-health` companion-tool callouts.
+
 ## [0.10.0] - 2026-04-23
 ### Added
 - **Prepared-statement cache invalidation warning** in `check-migration`: DDL that alters column layout (`ALTER TABLE ... ADD|DROP|ALTER|RENAME COLUMN`) or drops a table now emits a warning explaining that long-running application workers using asyncpg / node-postgres / JDBC / psycopg2 prepared-statement caches must be restarted after the migration runs. Suggestion includes the `statement_cache_size=0` opt-out for asyncpg. Inspired by a real incident in a production codebase.
