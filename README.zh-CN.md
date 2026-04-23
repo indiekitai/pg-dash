@@ -6,6 +6,8 @@
 
 📖 **[在 Dev.to 阅读完整介绍](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
 
+> 💡 **配套工具**：如果你想要**交互式 psql 旁诊断**和 Quick Fix（Python 版），看 [pg-health](https://github.com/indiekitai/pg-health)。pg-dash 是 CI / 面板方向，pg-health 是终端方向，两个都带 MCP Server。
+
 不是又一个监控面板 —— pg-dash 是为 **AI 编程工作流** 设计的：
 
 ```

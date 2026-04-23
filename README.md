@@ -6,6 +6,8 @@
 
 📖 **[Read the full writeup on Dev.to](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
 
+> 💡 **Companion tool:** For **interactive psql-side diagnosis** and Quick Fix (Python), see [pg-health](https://github.com/indiekitai/pg-health). pg-dash covers CI / dashboard; pg-health covers terminal / interactive. Both expose MCP servers.
+
 Not another monitoring dashboard — pg-dash is built to fit into your **AI coding workflow**:
 
 ```
