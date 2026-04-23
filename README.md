@@ -2,11 +2,23 @@
 
 # pg-dash
 
-**The AI-native PostgreSQL health checker.** One command to audit your database, 25 MCP tools for AI-assisted optimization, CI integration for automated checks.
+**The AI-native PostgreSQL health checker.** Three tools cover ~90% of day-to-day use — `check-migration`, `check`, `bloat`. Plus 20+ MCP tools for deeper analysis and a web dashboard for continuous monitoring.
 
 📖 **[Read the full writeup on Dev.to](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
 
 > 💡 **Companion tool:** For **interactive psql-side diagnosis** and Quick Fix (Python), see [pg-health](https://github.com/indiekitai/pg-health). pg-dash covers CI / dashboard; pg-health covers terminal / interactive. Both expose MCP servers.
+
+## Daily drivers
+
+Three commands cover the 80/20 case. Wire them into your workflow and you'll rarely need the rest:
+
+| Command | When to run |
+|---|---|
+| `pg-dash check-migration <file> <conn>` | Before every migration deploy (CI or pre-commit) |
+| `pg-dash check <conn>` (alias `health`) | Pre-deploy checklist |
+| `pg-dash bloat <conn>` | Scheduled cleanup (unused indexes, dead tuples) |
+
+For anything deeper — EXPLAIN analysis, schema diff, activity monitoring, query stats export — see the full command list below or call the 23 MCP tools from your AI agent.
 
 Not another monitoring dashboard — pg-dash is built to fit into your **AI coding workflow**:
 

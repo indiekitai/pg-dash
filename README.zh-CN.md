@@ -2,11 +2,23 @@
 
 # pg-dash
 
-**AI 原生的 PostgreSQL 健康检查工具。** 一条命令审计数据库，25 个 MCP 工具让 AI 帮你优化，CI 集成自动检查。
+**AI 原生的 PostgreSQL 健康检查工具。** 三个命令覆盖 ~90% 日常使用 —— `check-migration` / `check` / `bloat`。另外 20+ MCP 工具负责深度分析，还有一个 Web dashboard 做持续监控。
 
 📖 **[在 Dev.to 阅读完整介绍](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
 
 > 💡 **配套工具**：如果你想要**交互式 psql 旁诊断**和 Quick Fix（Python 版），看 [pg-health](https://github.com/indiekitai/pg-health)。pg-dash 是 CI / 面板方向，pg-health 是终端方向，两个都带 MCP Server。
+
+## 日常高频三件套
+
+三个命令覆盖 80/20 场景。挂进工作流之后，其余命令大多数时候都不用管：
+
+| 命令 | 什么时候跑 |
+|---|---|
+| `pg-dash check-migration <file> <conn>` | 每次部署 migration 之前（CI 或 pre-commit） |
+| `pg-dash check <conn>` (别名 `health`) | 部署前 checklist |
+| `pg-dash bloat <conn>` | 定期清理（未使用索引、死元组） |
+
+其他深度场景 —— EXPLAIN 分析、Schema diff、活动监控、query stats 导出 —— 看下面的完整命令列表，或者让你的 AI agent 调用 23 个 MCP 工具。
 
 不是又一个监控面板 —— pg-dash 是为 **AI 编程工作流** 设计的：
 

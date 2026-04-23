@@ -298,7 +298,48 @@ function staticCheck(sql: string): MigrationIssue[] {
     }
   }
 
+  // Cross-statement check: migration scope
+  issues.push(...detectCacheInvalidation(sql));
+
   return issues;
+}
+
+
+// ---- Prepared-statement cache invalidation detection ----
+// Long-running application processes (asyncpg, node-postgres with cache,
+// JDBC prepared-statement pool, psycopg2 with prepared=True) cache query
+// plans that bind to column positions/types. Schema changes on referenced
+// tables invalidate those plans, and workers crash ("cached plan must not
+// change result type" / InvalidCachedStatementError) until restarted.
+
+const CACHE_INVALIDATING_DDL: RegExp[] = [
+  // ALTER TABLE <t> (ADD|DROP|ALTER|RENAME) — column layout or name changes
+  /\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([\w."]+)\s+(?:ADD|DROP|ALTER|RENAME)\b/gi,
+  // DROP TABLE — the table itself vanishes
+  /\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([\w."]+)/gi,
+];
+
+function detectCacheInvalidation(sql: string): MigrationIssue[] {
+  const stripped = stripComments(sql);
+  const tables = new Set<string>();
+
+  for (const re of CACHE_INVALIDATING_DDL) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(stripped)) !== null) {
+      tables.add(bareTable(m[1]));
+    }
+  }
+
+  if (tables.size === 0) return [];
+
+  const tableList = Array.from(tables).sort().join(", ");
+  return [{
+    severity: "warning",
+    code: "APP_PREPARED_STATEMENT_CACHE",
+    message: `Schema DDL on ${tableList} will invalidate prepared-statement caches in long-running application workers (asyncpg, node-postgres with cache, JDBC prepared-stmt pool, psycopg2 with prepared=True). Workers may crash with \"cached plan must not change result type\" or InvalidCachedStatementError after this deploys.`,
+    suggestion: `Plan a rolling restart of application workers after the migration runs. asyncpg users can alternatively disable the cache by setting statement_cache_size=0 on the connection pool.`,
+  }];
 }
 
 // Dynamic analysis — requires a running PG pool

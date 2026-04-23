@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0] - 2026-04-23
+### Added
+- **Prepared-statement cache invalidation warning** in `check-migration`: DDL that alters column layout (`ALTER TABLE ... ADD|DROP|ALTER|RENAME COLUMN`) or drops a table now emits a warning explaining that long-running application workers using asyncpg / node-postgres / JDBC / psycopg2 prepared-statement caches must be restarted after the migration runs. Suggestion includes the `statement_cache_size=0` opt-out for asyncpg. Inspired by a real incident in a production codebase.
+
+### Changed
+- README now leads with three "daily drivers" (`check-migration`, `check`, `bloat`) instead of the total tool count, to make the 80/20 use case obvious.
+
+## [0.9.1] - 2026-03-20
+### Fixed
+- Unused indexes query correctly counts indexes across all schemas.
+
 ## [0.9.0] - 2026-03-20
 ### Added
 - **Table/index bloat analysis**: New `pg-dash bloat` command

@@ -231,7 +231,10 @@ describe("comment stripping — no false positives", () => {
       "-- DROP TABLE users if needed\nALTER TABLE users ADD COLUMN notes TEXT;"
     );
     expect(result.safe).toBe(true);
-    expect(result.issues).toHaveLength(0);
+    // The specific regression this test guards: DROP_TABLE rule must not
+    // misfire on the commented-out line. Other rules may legitimately fire
+    // (e.g. APP_PREPARED_STATEMENT_CACHE on the real ALTER TABLE).
+    expect(result.issues.find((i) => i.code === "DROP_TABLE")).toBeUndefined();
   });
 
   it("ignores UPDATE without WHERE mentioned in a block comment", async () => {
@@ -239,7 +242,9 @@ describe("comment stripping — no false positives", () => {
       "/* UPDATE users SET foo = 1 is dangerous */\nALTER TABLE posts ADD COLUMN slug TEXT;"
     );
     expect(result.safe).toBe(true);
-    expect(result.issues).toHaveLength(0);
+    // The specific regression this test guards: UPDATE_WITHOUT_WHERE must not
+    // misfire on the commented-out line. Other rules may legitimately fire.
+    expect(result.issues.find((i) => i.code === "UPDATE_WITHOUT_WHERE")).toBeUndefined();
   });
 
   it("still detects real DROP TABLE after a comment", async () => {
@@ -405,5 +410,66 @@ describe("analyzeMigration — RENAME TABLE / RENAME COLUMN", () => {
     );
     const renameColumn = result.issues.find((i) => i.code === "RENAME_COLUMN");
     expect(renameColumn).toBeUndefined();
+  });
+});
+
+// ─── Prepared-statement cache invalidation ──────────────────────────────────
+
+describe("analyzeMigration — prepared-statement cache invalidation", () => {
+  it("warns on ALTER TABLE ADD COLUMN", async () => {
+    const result = await analyzeMigration("ALTER TABLE orders ADD COLUMN total_cents BIGINT;");
+    const issue = result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+    expect(issue!.message).toContain("orders");
+    expect(issue!.message).toContain("asyncpg");
+    expect(issue!.suggestion).toMatch(/rolling restart/i);
+  });
+
+  it("warns on ALTER TABLE DROP COLUMN", async () => {
+    const result = await analyzeMigration("ALTER TABLE users DROP COLUMN legacy_flag;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeDefined();
+  });
+
+  it("warns on ALTER TABLE ALTER COLUMN TYPE", async () => {
+    const result = await analyzeMigration("ALTER TABLE events ALTER COLUMN payload TYPE jsonb USING payload::jsonb;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeDefined();
+  });
+
+  it("warns on ALTER TABLE RENAME COLUMN", async () => {
+    const result = await analyzeMigration("ALTER TABLE users RENAME COLUMN name TO full_name;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeDefined();
+  });
+
+  it("warns on DROP TABLE", async () => {
+    const result = await analyzeMigration("DROP TABLE old_sessions;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeDefined();
+  });
+
+  it("aggregates multiple tables into a single warning", async () => {
+    const sql = `
+      ALTER TABLE orders ADD COLUMN foo INT;
+      ALTER TABLE users DROP COLUMN bar;
+    `;
+    const result = await analyzeMigration(sql);
+    const issues = result.issues.filter((i) => i.code === "APP_PREPARED_STATEMENT_CACHE");
+    expect(issues).toHaveLength(1);
+    expect(issues[0].message).toContain("orders");
+    expect(issues[0].message).toContain("users");
+  });
+
+  it("does NOT warn on pure CREATE INDEX (no column layout change)", async () => {
+    const result = await analyzeMigration("CREATE INDEX CONCURRENTLY idx_users_email ON users(email);");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeUndefined();
+  });
+
+  it("does NOT warn on pure INSERT/UPDATE", async () => {
+    const result = await analyzeMigration("UPDATE users SET active = true WHERE id = 1;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeUndefined();
+  });
+
+  it("handles commented-out DDL correctly (no warning)", async () => {
+    const result = await analyzeMigration("-- ALTER TABLE orders DROP COLUMN foo;\nSELECT 1;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeUndefined();
   });
 });
