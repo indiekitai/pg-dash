@@ -27,13 +27,24 @@ describe("CLI", () => {
     }).toThrow();
   });
 
-  it("check subcommand exits with error for invalid connection", () => {
-    expect(() => {
-      execSync(`npx tsx ${CLI_PATH} check postgresql://invalid:5432/nope`, {
+  it("--help mentions pg-health as the home for CLI/MCP features", () => {
+    const output = run("--help");
+    expect(output).toContain("pg-health");
+  });
+
+  it("rejects an unknown positional with a pg-health pointer", () => {
+    try {
+      execSync(`npx tsx ${CLI_PATH} check postgresql://x@y/z`, {
         encoding: "utf-8",
         timeout: 10000,
         stdio: "pipe",
       });
-    }).toThrow();
+      throw new Error("CLI should have exited with an error");
+    } catch (err: any) {
+      // The positional "check" no longer maps to any subcommand; the
+      // message must steer users toward pg-health.
+      const stderr = (err.stderr || "").toString();
+      expect(stderr).toContain("pg-health");
+    }
   });
 });
