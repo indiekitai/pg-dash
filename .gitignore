@@ -2,3 +2,9 @@ node_modules/
 dist/
 *.tgz
 .github/workflows/
+
+# patch backups (local safety nets)
+*.bak-*
+*.py.bak-*
+*.md.bak-*
+*.html.bak-*
