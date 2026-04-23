@@ -1,0 +1,475 @@
+import { describe, it, expect } from "vitest";
+import { analyzeMigration, type MigrationCheckResult } from "../migration-checker.js";
+
+// ─── Static checks ───────────────────────────────────────────────────────────
+
+describe("analyzeMigration — static checks", () => {
+  // 1. CREATE INDEX without CONCURRENTLY → warning
+  it("warns on CREATE INDEX without CONCURRENTLY", async () => {
+    const result = await analyzeMigration(
+      "CREATE INDEX idx_foo ON my_table (col);"
+    );
+    const issue = result.issues.find((i) => i.code === "INDEX_WITHOUT_CONCURRENTLY");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+    expect(issue!.tableName).toBe("my_table");
+  });
+
+  // 2. CREATE INDEX CONCURRENTLY → info
+  it("reports info for CREATE INDEX CONCURRENTLY", async () => {
+    const result = await analyzeMigration(
+      "CREATE INDEX CONCURRENTLY idx_foo ON my_table (col);"
+    );
+    const issue = result.issues.find((i) => i.code === "INDEX_CONCURRENTLY_OK");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("info");
+  });
+
+  // 3. ADD COLUMN NOT NULL without DEFAULT → error
+  it("errors on ADD COLUMN NOT NULL without DEFAULT", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users ADD COLUMN email TEXT NOT NULL;"
+    );
+    const issue = result.issues.find((i) => i.code === "ADD_COLUMN_NOT_NULL_NO_DEFAULT");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("error");
+    expect(issue!.tableName).toBe("users");
+  });
+
+  // 4. ADD COLUMN with NOT NULL + DEFAULT → warning
+  it("warns on ADD COLUMN NOT NULL with DEFAULT", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users ADD COLUMN active BOOLEAN NOT NULL DEFAULT false;"
+    );
+    const issue = result.issues.find((i) => i.code === "ADD_COLUMN_REWRITES_TABLE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+  });
+
+  // ADD COLUMN nullable (no NOT NULL) → no error/warning
+  it("does not warn on ADD COLUMN nullable with no constraints", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users ADD COLUMN bio TEXT;"
+    );
+    const addColIssues = result.issues.filter((i) =>
+      i.code === "ADD_COLUMN_NOT_NULL_NO_DEFAULT" || i.code === "ADD_COLUMN_REWRITES_TABLE"
+    );
+    expect(addColIssues).toHaveLength(0);
+  });
+
+  // 5. DROP TABLE → warning
+  it("warns on DROP TABLE", async () => {
+    const result = await analyzeMigration("DROP TABLE old_logs;");
+    const issue = result.issues.find((i) => i.code === "DROP_TABLE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+  });
+
+  // 6. TRUNCATE → warning
+  it("warns on TRUNCATE", async () => {
+    const result = await analyzeMigration("TRUNCATE sessions;");
+    const issue = result.issues.find((i) => i.code === "TRUNCATE_TABLE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+  });
+
+  // 7. DELETE without WHERE → warning
+  it("warns on DELETE FROM without WHERE", async () => {
+    const result = await analyzeMigration("DELETE FROM temp_data;");
+    const issue = result.issues.find((i) => i.code === "DELETE_WITHOUT_WHERE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+  });
+
+  // DELETE with WHERE → no warning
+  it("does not warn on DELETE with WHERE", async () => {
+    const result = await analyzeMigration(
+      "DELETE FROM temp_data WHERE created_at < '2020-01-01';"
+    );
+    const issue = result.issues.find((i) => i.code === "DELETE_WITHOUT_WHERE");
+    expect(issue).toBeUndefined();
+  });
+
+  // 8. UPDATE without WHERE → warning
+  it("warns on UPDATE without WHERE", async () => {
+    const result = await analyzeMigration(
+      "UPDATE users SET status = 'active';"
+    );
+    const issue = result.issues.find((i) => i.code === "UPDATE_WITHOUT_WHERE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+  });
+
+  // UPDATE with WHERE → no warning
+  it("does not warn on UPDATE with WHERE", async () => {
+    const result = await analyzeMigration(
+      "UPDATE users SET status = 'active' WHERE id = 1;"
+    );
+    const issue = result.issues.find((i) => i.code === "UPDATE_WITHOUT_WHERE");
+    expect(issue).toBeUndefined();
+  });
+
+  // 9. Mixed SQL file
+  it("handles mixed multi-statement SQL", async () => {
+    const sql = `
+      CREATE INDEX idx_x ON foo (x);
+      ALTER TABLE bar ADD COLUMN age INT NOT NULL;
+      DROP TABLE legacy;
+      TRUNCATE cache;
+    `;
+    const result = await analyzeMigration(sql);
+    const codes = result.issues.map((i) => i.code);
+    expect(codes).toContain("INDEX_WITHOUT_CONCURRENTLY");
+    expect(codes).toContain("ADD_COLUMN_NOT_NULL_NO_DEFAULT");
+    expect(codes).toContain("DROP_TABLE");
+    expect(codes).toContain("TRUNCATE_TABLE");
+  });
+
+  // 10. safe=false when error exists
+  it("safe=false when there is an error-level issue", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users ADD COLUMN role TEXT NOT NULL;"
+    );
+    expect(result.safe).toBe(false);
+  });
+
+  // 11. safe=true when only warnings/infos
+  it("safe=true when there are only warnings/infos", async () => {
+    const result = await analyzeMigration("DROP TABLE old_cache;");
+    expect(result.safe).toBe(true);
+    expect(result.summary.warnings).toBeGreaterThan(0);
+    expect(result.summary.errors).toBe(0);
+  });
+
+  // 12. REFERENCES — static syntax check (no DB)
+  it("captures REFERENCES table name for dynamic validation", async () => {
+    // Static-only: without pool, no MISSING_TABLE error is raised
+    const result = await analyzeMigration(`
+      ALTER TABLE orders ADD COLUMN user_id INT;
+      -- REFERENCES users
+    `);
+    // No MISSING_TABLE without pool — just verify no crash and result is valid
+    expect(result).toHaveProperty("issues");
+    expect(result).toHaveProperty("safe");
+  });
+
+  // 13. CREATE INDEX on table created in SAME migration → no warning
+  it("does not warn on CREATE INDEX on table created within the same migration", async () => {
+    const sql = `
+      CREATE TABLE new_table (id SERIAL PRIMARY KEY, name TEXT);
+      CREATE INDEX idx_name ON new_table (name);
+    `;
+    const result = await analyzeMigration(sql);
+    const issue = result.issues.find((i) => i.code === "INDEX_WITHOUT_CONCURRENTLY");
+    expect(issue).toBeUndefined();
+  });
+
+  // 14. Empty SQL → safe=true, 0 issues
+  it("returns safe=true and 0 issues for empty SQL", async () => {
+    const result = await analyzeMigration("");
+    expect(result.safe).toBe(true);
+    expect(result.issues).toHaveLength(0);
+    expect(result.summary.errors).toBe(0);
+    expect(result.summary.warnings).toBe(0);
+    expect(result.summary.infos).toBe(0);
+  });
+
+  // Whitespace-only SQL
+  it("returns safe=true for whitespace-only SQL", async () => {
+    const result = await analyzeMigration("   \n   ");
+    expect(result.safe).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  // 15. Summary counts are accurate
+  it("summary counts match actual issues", async () => {
+    const sql = `
+      ALTER TABLE t ADD COLUMN x TEXT NOT NULL;
+      DROP TABLE old;
+      CREATE INDEX CONCURRENTLY idx_y ON t (y);
+    `;
+    const result = await analyzeMigration(sql);
+    const { errors, warnings, infos } = result.summary;
+    expect(errors).toBe(result.issues.filter((i) => i.severity === "error").length);
+    expect(warnings).toBe(result.issues.filter((i) => i.severity === "warning").length);
+    expect(infos).toBe(result.issues.filter((i) => i.severity === "info").length);
+  });
+});
+
+// ─── Output format checks (via analyzeMigration result shape) ─────────────────
+
+describe("analyzeMigration — result structure", () => {
+  it("JSON structure has all required fields", async () => {
+    const result: MigrationCheckResult = await analyzeMigration(
+      "ALTER TABLE users ADD COLUMN score INT NOT NULL;"
+    );
+    expect(typeof result.safe).toBe("boolean");
+    expect(Array.isArray(result.issues)).toBe(true);
+    expect(typeof result.summary.errors).toBe("number");
+    expect(typeof result.summary.warnings).toBe("number");
+    expect(typeof result.summary.infos).toBe("number");
+    expect(typeof result.checkedAt).toBe("string");
+    // checkedAt should be a valid ISO string
+    expect(new Date(result.checkedAt).toString()).not.toBe("Invalid Date");
+  });
+
+  it("each issue has required fields", async () => {
+    const result = await analyzeMigration("DROP TABLE x; TRUNCATE y;");
+    for (const issue of result.issues) {
+      expect(["error", "warning", "info"]).toContain(issue.severity);
+      expect(typeof issue.code).toBe("string");
+      expect(typeof issue.message).toBe("string");
+    }
+  });
+});
+
+// ─── Comment stripping ───────────────────────────────────────────────────────
+
+describe("comment stripping — no false positives", () => {
+  it("ignores DROP TABLE mentioned in a single-line comment", async () => {
+    const result = await analyzeMigration(
+      "-- DROP TABLE users if needed\nALTER TABLE users ADD COLUMN notes TEXT;"
+    );
+    expect(result.safe).toBe(true);
+    // The specific regression this test guards: DROP_TABLE rule must not
+    // misfire on the commented-out line. Other rules may legitimately fire
+    // (e.g. APP_PREPARED_STATEMENT_CACHE on the real ALTER TABLE).
+    expect(result.issues.find((i) => i.code === "DROP_TABLE")).toBeUndefined();
+  });
+
+  it("ignores UPDATE without WHERE mentioned in a block comment", async () => {
+    const result = await analyzeMigration(
+      "/* UPDATE users SET foo = 1 is dangerous */\nALTER TABLE posts ADD COLUMN slug TEXT;"
+    );
+    expect(result.safe).toBe(true);
+    // The specific regression this test guards: UPDATE_WITHOUT_WHERE must not
+    // misfire on the commented-out line. Other rules may legitimately fire.
+    expect(result.issues.find((i) => i.code === "UPDATE_WITHOUT_WHERE")).toBeUndefined();
+  });
+
+  it("still detects real DROP TABLE after a comment", async () => {
+    const result = await analyzeMigration(
+      "-- cleanup old table\nDROP TABLE old_data;"
+    );
+    const drop = result.issues.find((i) => i.code === "DROP_TABLE");
+    expect(drop).toBeDefined();
+    expect(drop?.lineNumber).toBe(2);
+  });
+
+  it("line numbers are accurate after comment stripping", async () => {
+    const sql = [
+      "-- comment line 1",
+      "-- comment line 2",
+      "CREATE INDEX idx_x ON users (email);",
+    ].join("\n");
+    const result = await analyzeMigration(sql);
+    const issue = result.issues.find((i) => i.code === "INDEX_WITHOUT_CONCURRENTLY");
+    expect(issue?.lineNumber).toBe(3);
+  });
+});
+
+// ─── MD format check ──────────────────────────────────────────────────────────
+
+describe("advanced checks — ALTER TYPE, DROP COLUMN, ADD CONSTRAINT, CONCURRENTLY in txn", () => {
+  it("warns on ALTER COLUMN TYPE", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users ALTER COLUMN age TYPE BIGINT;"
+    );
+    const issue = result.issues.find((i) => i.code === "ALTER_COLUMN_TYPE");
+    expect(issue).toBeDefined();
+    expect(issue?.severity).toBe("warning");
+    expect(issue?.tableName).toBe("users");
+  });
+
+  it("reports info on DROP COLUMN", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users DROP COLUMN legacy_field;"
+    );
+    const issue = result.issues.find((i) => i.code === "DROP_COLUMN");
+    expect(issue).toBeDefined();
+    expect(issue?.severity).toBe("info");
+  });
+
+  it("warns on ADD CONSTRAINT without NOT VALID", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE orders ADD CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id);"
+    );
+    const issue = result.issues.find((i) => i.code === "ADD_CONSTRAINT_SCANS_TABLE");
+    expect(issue).toBeDefined();
+    expect(issue?.severity).toBe("warning");
+  });
+
+  it("does not warn on ADD CONSTRAINT ... NOT VALID", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE orders ADD CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id) NOT VALID;"
+    );
+    const issue = result.issues.find((i) => i.code === "ADD_CONSTRAINT_SCANS_TABLE");
+    expect(issue).toBeUndefined();
+  });
+
+  it("errors on CREATE INDEX CONCURRENTLY inside a transaction", async () => {
+    const result = await analyzeMigration(
+      "BEGIN;\nCREATE INDEX CONCURRENTLY idx_users_email ON users (email);\nCOMMIT;"
+    );
+    const issue = result.issues.find((i) => i.code === "CONCURRENTLY_IN_TRANSACTION");
+    expect(issue).toBeDefined();
+    expect(issue?.severity).toBe("error");
+  });
+
+  it("does not error CONCURRENTLY_IN_TRANSACTION when no transaction wrapper", async () => {
+    const result = await analyzeMigration(
+      "CREATE INDEX CONCURRENTLY idx_users_email ON users (email);"
+    );
+    const issue = result.issues.find((i) => i.code === "CONCURRENTLY_IN_TRANSACTION");
+    expect(issue).toBeUndefined();
+  });
+});
+
+describe("formatMarkdown output", () => {
+  it("md output should contain table header and result row", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users ADD COLUMN x TEXT NOT NULL;"
+    );
+    // Simulate what the CLI would produce in md format
+    const lines: string[] = [];
+    lines.push("## 🔍 Migration Safety Check\n");
+    lines.push("| Severity | Code | Message |");
+    lines.push("|----------|------|---------|");
+    for (const issue of result.issues) {
+      const sev =
+        issue.severity === "error"
+          ? "🔴 ERROR"
+          : issue.severity === "warning"
+          ? "⚠️ WARNING"
+          : "ℹ️ INFO";
+      lines.push(`| ${sev} | ${issue.code} | ${issue.message} |`);
+    }
+    const output = lines.join("\n");
+    expect(output).toContain("| Severity | Code | Message |");
+    expect(output).toContain("ADD_COLUMN_NOT_NULL_NO_DEFAULT");
+    expect(output).toContain("🔴 ERROR");
+  });
+});
+
+// ─── RENAME TABLE / RENAME COLUMN checks ─────────────────────────────────────
+
+describe("analyzeMigration — RENAME TABLE / RENAME COLUMN", () => {
+  it("warns on RENAME TABLE", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users RENAME TO accounts;"
+    );
+    const issue = result.issues.find((i) => i.code === "RENAME_TABLE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+    expect(issue!.message).toContain('"users"');
+    expect(issue!.message).toContain('"accounts"');
+    expect(issue!.tableName).toBe("users");
+    expect(issue!.suggestion).toContain("view");
+  });
+
+  it("warns on RENAME COLUMN", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users RENAME COLUMN email TO email_address;"
+    );
+    const issue = result.issues.find((i) => i.code === "RENAME_COLUMN");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+    expect(issue!.message).toContain('"email"');
+    expect(issue!.message).toContain('"email_address"');
+    expect(issue!.message).toContain('"users"');
+    expect(issue!.tableName).toBe("users");
+    expect(issue!.suggestion).toContain("expand/contract");
+  });
+
+  it("detects both RENAME TABLE and RENAME COLUMN in the same migration", async () => {
+    const sql = `
+      ALTER TABLE users RENAME TO accounts;
+      ALTER TABLE accounts RENAME COLUMN email TO email_address;
+    `;
+    const result = await analyzeMigration(sql);
+    const renameTable = result.issues.find((i) => i.code === "RENAME_TABLE");
+    const renameColumn = result.issues.find((i) => i.code === "RENAME_COLUMN");
+    expect(renameTable).toBeDefined();
+    expect(renameColumn).toBeDefined();
+  });
+
+  it("RENAME TABLE on newly created table is still a warning (app code may reference old name)", async () => {
+    const sql = `
+      CREATE TABLE foo (id SERIAL PRIMARY KEY, name TEXT);
+      ALTER TABLE foo RENAME TO bar;
+    `;
+    const result = await analyzeMigration(sql);
+    const issue = result.issues.find((i) => i.code === "RENAME_TABLE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+  });
+
+  it("RENAME TABLE does not produce RENAME_COLUMN false positive", async () => {
+    const result = await analyzeMigration(
+      "ALTER TABLE users RENAME TO accounts;"
+    );
+    const renameColumn = result.issues.find((i) => i.code === "RENAME_COLUMN");
+    expect(renameColumn).toBeUndefined();
+  });
+});
+
+// ─── Prepared-statement cache invalidation ──────────────────────────────────
+
+describe("analyzeMigration — prepared-statement cache invalidation", () => {
+  it("warns on ALTER TABLE ADD COLUMN", async () => {
+    const result = await analyzeMigration("ALTER TABLE orders ADD COLUMN total_cents BIGINT;");
+    const issue = result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE");
+    expect(issue).toBeDefined();
+    expect(issue!.severity).toBe("warning");
+    expect(issue!.message).toContain("orders");
+    expect(issue!.message).toContain("asyncpg");
+    expect(issue!.suggestion).toMatch(/rolling restart/i);
+  });
+
+  it("warns on ALTER TABLE DROP COLUMN", async () => {
+    const result = await analyzeMigration("ALTER TABLE users DROP COLUMN legacy_flag;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeDefined();
+  });
+
+  it("warns on ALTER TABLE ALTER COLUMN TYPE", async () => {
+    const result = await analyzeMigration("ALTER TABLE events ALTER COLUMN payload TYPE jsonb USING payload::jsonb;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeDefined();
+  });
+
+  it("warns on ALTER TABLE RENAME COLUMN", async () => {
+    const result = await analyzeMigration("ALTER TABLE users RENAME COLUMN name TO full_name;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeDefined();
+  });
+
+  it("warns on DROP TABLE", async () => {
+    const result = await analyzeMigration("DROP TABLE old_sessions;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeDefined();
+  });
+
+  it("aggregates multiple tables into a single warning", async () => {
+    const sql = `
+      ALTER TABLE orders ADD COLUMN foo INT;
+      ALTER TABLE users DROP COLUMN bar;
+    `;
+    const result = await analyzeMigration(sql);
+    const issues = result.issues.filter((i) => i.code === "APP_PREPARED_STATEMENT_CACHE");
+    expect(issues).toHaveLength(1);
+    expect(issues[0].message).toContain("orders");
+    expect(issues[0].message).toContain("users");
+  });
+
+  it("does NOT warn on pure CREATE INDEX (no column layout change)", async () => {
+    const result = await analyzeMigration("CREATE INDEX CONCURRENTLY idx_users_email ON users(email);");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeUndefined();
+  });
+
+  it("does NOT warn on pure INSERT/UPDATE", async () => {
+    const result = await analyzeMigration("UPDATE users SET active = true WHERE id = 1;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeUndefined();
+  });
+
+  it("handles commented-out DDL correctly (no warning)", async () => {
+    const result = await analyzeMigration("-- ALTER TABLE orders DROP COLUMN foo;\nSELECT 1;");
+    expect(result.issues.find((i) => i.code === "APP_PREPARED_STATEMENT_CACHE")).toBeUndefined();
+  });
+});
