@@ -2,15 +2,11 @@
 
 # pg-dash
 
-**自托管的 PostgreSQL 监控 Dashboard。** 浏览器里的团队 on-call 面板：8 页健康指标、告警、历史 snapshot，指向任意你能连的 PostgreSQL。
+**AI 原生的 PostgreSQL 健康检查工具。** 三个命令覆盖 ~90% 日常使用 —— `check-migration` / `check` / `bloat`。另外 20+ MCP 工具负责深度分析，还有一个 Web dashboard 做持续监控。
 
 📖 **[在 Dev.to 阅读完整介绍](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
 
-> 🚚 **CLI 和 MCP 用户**：`check-migration` 和 `explain`（以及对应的 MCP tool）已经迁到 [**pg-health**](https://github.com/indiekitai/pg-health)。这个包的 v1.0 会移除这些子命令。
->
-> **迁移方式**：`npm uninstall -g @indiekitai/pg-dash` → `pipx install pg-health`，然后把 `~/.claude/mcp.json` 里的 `pg-dash-mcp` 改成 `pg-health-mcp`。旧的 MCP tool 名字（`pg_dash_*`）保留 3 个月兼容期。
->
-> 最终分工：**pg-dash = Web Dashboard**，**pg-health = CLI + MCP**。
+> 💡 **配套工具**：如果你想要**交互式 psql 旁诊断**和 Quick Fix（Python 版），看 [pg-health](https://github.com/indiekitai/pg-health)。pg-dash 是 CI / 面板方向，pg-health 是终端方向，两个都带 MCP Server。
 
 ## 日常高频三件套
 

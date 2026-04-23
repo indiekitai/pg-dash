@@ -2,15 +2,11 @@
 
 # pg-dash
 
-**Self-hostable PostgreSQL monitoring dashboard.** A browser-based panel for team on-call: 8 pages of health metrics, alerts, and historical snapshots over any connection you can reach.
+**The AI-native PostgreSQL health checker.** Three tools cover ~90% of day-to-day use — `check-migration`, `check`, `bloat`. Plus 20+ MCP tools for deeper analysis and a web dashboard for continuous monitoring.
 
 📖 **[Read the full writeup on Dev.to](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
 
-> 🚚 **CLI & MCP users**: `check-migration` and `explain` (and their MCP equivalents) have moved to [**pg-health**](https://github.com/indiekitai/pg-health). This package will remove those subcommands in v1.0.
->
-> **Migration**: `npm uninstall -g @indiekitai/pg-dash` → `pipx install pg-health`, then update your `~/.claude/mcp.json` from `pg-dash-mcp` to `pg-health-mcp`. Deprecated MCP tool names (`pg_dash_*`) still work for 3 months.
->
-> The final split: **pg-dash = Web Dashboard**, **pg-health = CLI + MCP**.
+> 💡 **Companion tool:** For **interactive psql-side diagnosis** and Quick Fix (Python), see [pg-health](https://github.com/indiekitai/pg-health). pg-dash covers CI / dashboard; pg-health covers terminal / interactive. Both expose MCP servers.
 
 ## Daily drivers
 
