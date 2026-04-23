@@ -449,3 +449,15 @@ MIT
 ---
 
 由 [IndieKit](https://github.com/indiekitai) 构建 🛠️
+
+
+## 整合历史
+
+pg-dash 合并了以下早期独立包的功能，这些包都已归档：
+
+- **[pg-inspect](https://github.com/indiekitai/pg-inspect)** — Schema 检查（改用 `pg-dash schema-diff` / inspection routes）
+- **[pg-top](https://github.com/indiekitai/pg-top)** — 实时活动监控（改用 `pg-dash watch-locks`）
+- **[pg-explain](https://github.com/indiekitai/pg-explain)** — EXPLAIN ANALYZE 可视化（改用 `pg-dash explain`）
+- **[pg-horizon](https://github.com/indiekitai/pg-horizon)** — MVCC Horizon 监控（由 pg-dash 的 Transaction ID Age 检查覆盖）
+
+如果你之前装过这些独立 npm 包，换成 pg-dash 就行 —— 同样的功能，一个安装、一条升级路径。

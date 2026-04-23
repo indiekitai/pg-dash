@@ -508,3 +508,15 @@ MIT
 ---
 
 Built by [IndieKit](https://github.com/indiekitai) 🛠️
+
+
+## History
+
+pg-dash has consolidated functionality from several earlier packages, all now archived:
+
+- **[pg-inspect](https://github.com/indiekitai/pg-inspect)** — schema introspection (use `pg-dash schema-diff` or inspection routes)
+- **[pg-top](https://github.com/indiekitai/pg-top)** — realtime activity monitor (use `pg-dash watch-locks`)
+- **[pg-explain](https://github.com/indiekitai/pg-explain)** — EXPLAIN ANALYZE visualization (use `pg-dash explain`)
+- **[pg-horizon](https://github.com/indiekitai/pg-horizon)** — MVCC horizon monitoring (covered by pg-dash's `Transaction ID Age` check)
+
+If you've installed any of these as standalone npm packages, switch to pg-dash — same functionality, one install, one upgrade path.
