@@ -82,6 +82,7 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 - Time-series charts with range selector (5m → 7d)
 - WebSocket-powered auto-refresh
 - Active query list with cancel support
+- 🌐 UI available in English and 中文 (simplified Chinese); per-browser preference saved to localStorage
 
 ### 🏥 Health Advisor
 - **46+ automated checks** across performance, maintenance, schema, and security

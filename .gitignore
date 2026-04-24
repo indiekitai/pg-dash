@@ -8,3 +8,6 @@ dist/
 *.py.bak-*
 *.md.bak-*
 *.html.bak-*
+
+# local secrets
+.env.local

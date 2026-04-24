@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.12.0] - 2026-04-24
+### Added
+- **Web dashboard i18n**: English / 中文 (Simplified Chinese) language toggle in the header, persisted to localStorage. Zero new dependencies — implemented as a lightweight `LanguageProvider` + `useTranslation` hook with compile-time mirroring between en/zh locales. Covers all tabs (Overview, Health, Schema, Activity, Queries, Trends, Disk, Alerts), table headers, empty states, chart legends, severity badges, and confirmation dialogs. Dynamic data (table names, query text, advisor rule messages from the server) remains in its source form.
+
 ## [0.11.0] - 2026-04-23
 ### Changed
 - **Consolidation reversal**: reverted the short-lived Phase C strip (commits 4e3983e, a73df3e, 1a56d8e). pg-dash is again a single full-featured tool: Web Dashboard + CLI + MCP server. pg-health, which briefly split off the CLI/MCP side, has been merged back; its functionality was always a subset of pg-dash.
