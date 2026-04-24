@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { useTranslation, localeCode } from "../i18n";
 
 interface TopQuery {
   queryid: string;
@@ -22,6 +23,8 @@ type SortKey = "total_time" | "mean_time" | "calls";
 type RangeKey = "1h" | "6h" | "24h" | "7d";
 
 export function QueryTrendsPage() {
+  const { t, lang } = useTranslation();
+  const loc = localeCode(lang);
   const [queries, setQueries] = useState<TopQuery[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +79,7 @@ export function QueryTrendsPage() {
 
   const fmtTs = (ts: number) => {
     const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" });
   };
 
   const sortBtn = (key: SortKey, label: string) => (
@@ -93,10 +96,10 @@ export function QueryTrendsPage() {
     >{key}</button>
   );
 
-  if (loading) return <div className="text-gray-500 text-sm p-4">Loading query trends...</div>;
+  if (loading) return <div className="text-gray-500 text-sm p-4">{t("queries.loadingTrends")}</div>;
   if (error) return (
     <div className="bg-gray-900 rounded-xl p-6">
-      <h2 className="text-lg font-semibold mb-2">Query Trends</h2>
+      <h2 className="text-lg font-semibold mb-2">{t("queries.queryTrends")}</h2>
       <div className="bg-yellow-900/30 border border-yellow-800 rounded p-3 text-sm text-yellow-300">{error}</div>
     </div>
   );
@@ -108,12 +111,12 @@ export function QueryTrendsPage() {
         <div className="bg-gray-900 rounded-xl p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold truncate max-w-2xl font-mono">{selectedQuery.query}</h3>
-            <button className="text-xs text-gray-400 hover:text-gray-300 cursor-pointer" onClick={() => setSelectedQuery(null)}>✕ Close</button>
+            <button className="text-xs text-gray-400 hover:text-gray-300 cursor-pointer" onClick={() => setSelectedQuery(null)}>{t("queries.close")}</button>
           </div>
           {trendLoading ? (
-            <div className="text-gray-500 text-sm">Loading trend...</div>
+            <div className="text-gray-500 text-sm">{t("queries.loadingTrend")}</div>
           ) : trend.length === 0 ? (
-            <div className="text-gray-500 text-sm">No trend data available for this range</div>
+            <div className="text-gray-500 text-sm">{t("queries.noTrendRange")}</div>
           ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -126,12 +129,12 @@ export function QueryTrendsPage() {
                     contentStyle={{ backgroundColor: "#1F2937", border: "1px solid #374151", borderRadius: 8 }}
                     labelFormatter={fmtTs}
                     formatter={(value: number, name: string) =>
-                      name === "mean_exec_time" ? [fmtTime(value), "Avg Time"] : [value.toLocaleString(), "Calls"]
+                      name === t("queries.cols.avgTime") ? [fmtTime(value), t("queries.cols.avgTime")] : [value.toLocaleString(loc), t("queries.cols.calls")]
                     }
                   />
                   <Legend />
-                  <Line yAxisId="time" type="monotone" dataKey="mean_exec_time" stroke="#60A5FA" name="Avg Time" dot={false} strokeWidth={2} />
-                  <Line yAxisId="calls" type="monotone" dataKey="calls" stroke="#34D399" name="Calls" dot={false} strokeWidth={2} />
+                  <Line yAxisId="time" type="monotone" dataKey="mean_exec_time" stroke="#60A5FA" name={t("queries.cols.avgTime")} dot={false} strokeWidth={2} />
+                  <Line yAxisId="calls" type="monotone" dataKey="calls" stroke="#34D399" name={t("queries.cols.calls")} dot={false} strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -142,31 +145,31 @@ export function QueryTrendsPage() {
       {/* Top queries table */}
       <div className="bg-gray-900 rounded-xl p-4">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h2 className="text-lg font-semibold">Query Trends ({queries.length})</h2>
+          <h2 className="text-lg font-semibold">{t("queries.queryTrends")} ({queries.length})</h2>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">Range:</span>
+            <span className="text-xs text-gray-500">{t("queries.rangeLabel")}</span>
             {rangeBtn("1h")}
             {rangeBtn("6h")}
             {rangeBtn("24h")}
             {rangeBtn("7d")}
-            <span className="text-xs text-gray-500 ml-2">Sort:</span>
-            {sortBtn("total_time", "Total Time")}
-            {sortBtn("mean_time", "Avg Time")}
-            {sortBtn("calls", "Calls")}
+            <span className="text-xs text-gray-500 ml-2">{t("queries.sortLabel")}</span>
+            {sortBtn("total_time", t("queries.cols.totalTime"))}
+            {sortBtn("mean_time", t("queries.cols.avgTime"))}
+            {sortBtn("calls", t("queries.cols.calls"))}
           </div>
         </div>
         {queries.length === 0 ? (
-          <p className="text-gray-500 text-sm">No query stats collected yet. Data will appear after the first snapshot interval.</p>
+          <p className="text-gray-500 text-sm">{t("queries.noTrendData")}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-gray-400 text-left border-b border-gray-800">
-                  <th className="py-2 px-2">Query</th>
-                  <th className="py-2 px-2 text-right">Calls</th>
-                  <th className="py-2 px-2 text-right">Total Time</th>
-                  <th className="py-2 px-2 text-right">Avg Time</th>
-                  <th className="py-2 px-2 text-right">Rows</th>
+                  <th className="py-2 px-2">{t("queries.cols.query")}</th>
+                  <th className="py-2 px-2 text-right">{t("queries.cols.calls")}</th>
+                  <th className="py-2 px-2 text-right">{t("queries.cols.totalTime")}</th>
+                  <th className="py-2 px-2 text-right">{t("queries.cols.avgTime")}</th>
+                  <th className="py-2 px-2 text-right">{t("queries.cols.rows")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -177,10 +180,10 @@ export function QueryTrendsPage() {
                     onClick={() => setSelectedQuery(q)}
                   >
                     <td className="py-1.5 px-2 font-mono text-xs max-w-lg truncate">{q.query}</td>
-                    <td className="py-1.5 px-2 text-right font-mono">{q.total_calls.toLocaleString()}</td>
+                    <td className="py-1.5 px-2 text-right font-mono">{q.total_calls.toLocaleString(loc)}</td>
                     <td className="py-1.5 px-2 text-right font-mono">{fmtTime(q.total_exec_time)}</td>
                     <td className="py-1.5 px-2 text-right font-mono">{fmtTime(q.mean_exec_time)}</td>
-                    <td className="py-1.5 px-2 text-right font-mono">{q.total_rows.toLocaleString()}</td>
+                    <td className="py-1.5 px-2 text-right font-mono">{q.total_rows.toLocaleString(loc)}</td>
                   </tr>
                 ))}
               </tbody>

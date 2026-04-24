@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "../i18n";
 
 interface PlanNode {
   "Node Type": string;
@@ -35,6 +36,7 @@ function costBg(pct: number): string {
 export function ExplainNode({ node, totalTime, isSlowest, depth = 0 }: {
   node: PlanNode; totalTime: number; isSlowest: boolean; depth?: number;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const selfTime = (node["Actual Total Time"] || 0);
   const pct = totalTime > 0 ? (selfTime / totalTime) * 100 : 0;
@@ -50,23 +52,23 @@ export function ExplainNode({ node, totalTime, isSlowest, depth = 0 }: {
           {hasChildren && <span className="text-xs text-gray-500">{expanded ? "▼" : "▶"}</span>}
           <span className="font-semibold text-sm">{node["Node Type"]}</span>
           {node["Join Type"] && <span className="text-xs text-purple-400">({node["Join Type"]})</span>}
-          {node["Relation Name"] && <span className="text-xs text-blue-400">on {node["Relation Name"]}</span>}
-          {node["Index Name"] && <span className="text-xs text-cyan-400">using {node["Index Name"]}</span>}
+          {node["Relation Name"] && <span className="text-xs text-blue-400">{t("explain.onRelation")} {node["Relation Name"]}</span>}
+          {node["Index Name"] && <span className="text-xs text-cyan-400">{t("explain.usingIndex")} {node["Index Name"]}</span>}
           <span className={`text-xs font-mono ml-auto ${costColor(pct)}`}>{pct.toFixed(1)}%</span>
-          {isSlowest && <span className="text-xs bg-red-800 text-red-200 px-1 rounded">slowest</span>}
+          {isSlowest && <span className="text-xs bg-red-800 text-red-200 px-1 rounded">{t("explain.slowest")}</span>}
         </div>
         <div className="flex gap-4 mt-1 text-xs text-gray-400 flex-wrap">
-          <span>Time: <span className="text-gray-300">{node["Actual Startup Time"]?.toFixed(2)}..{selfTime.toFixed(2)}ms</span></span>
-          <span>Rows: <span className="text-gray-300">{node["Actual Rows"]}</span> (est. {node["Plan Rows"]})</span>
+          <span>{t("explain.timeLabel")} <span className="text-gray-300">{node["Actual Startup Time"]?.toFixed(2)}..{selfTime.toFixed(2)}ms</span></span>
+          <span>{t("explain.rowsLabel")} <span className="text-gray-300">{node["Actual Rows"]}</span> ({t("explain.estLabel")} {node["Plan Rows"]})</span>
           {(node["Rows Removed by Filter"] ?? 0) > 0 && (
-            <span>Filtered: <span className="text-yellow-300">{node["Rows Removed by Filter"]}</span></span>
+            <span>{t("explain.filteredLabel")} <span className="text-yellow-300">{node["Rows Removed by Filter"]}</span></span>
           )}
           {((node["Shared Hit Blocks"] ?? 0) > 0 || (node["Shared Read Blocks"] ?? 0) > 0) && (
-            <span>Buffers: hit={node["Shared Hit Blocks"] || 0} read={node["Shared Read Blocks"] || 0}</span>
+            <span>{t("explain.buffers")} hit={node["Shared Hit Blocks"] || 0} read={node["Shared Read Blocks"] || 0}</span>
           )}
         </div>
-        {node["Filter"] && <div className="text-xs text-gray-500 mt-1 font-mono">Filter: {node["Filter"]}</div>}
-        {node["Index Cond"] && <div className="text-xs text-gray-500 mt-1 font-mono">Cond: {node["Index Cond"]}</div>}
+        {node["Filter"] && <div className="text-xs text-gray-500 mt-1 font-mono">{t("explain.filter")} {node["Filter"]}</div>}
+        {node["Index Cond"] && <div className="text-xs text-gray-500 mt-1 font-mono">{t("explain.cond")} {node["Index Cond"]}</div>}
       </div>
       {expanded && hasChildren && node.Plans!.map((child, i) => {
         const childSlowest = findSlowestTime(child) === findSlowestTime(node) && isSlowest;

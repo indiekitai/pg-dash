@@ -1,9 +1,18 @@
 import { useEffect, useState, useCallback } from "react";
 
+function authStrings() {
+  let lang = "en";
+  try { const s = localStorage.getItem("pgdash.lang"); if (s === "zh" || s === "en") lang = s; } catch {}
+  return lang === "zh"
+    ? { prompt: "pg-dash 需要认证。请输入令牌:", invalid: "令牌无效" }
+    : { prompt: "pg-dash requires authentication. Enter token:", invalid: "Invalid token" };
+}
+
 async function authFetch(url: string, init?: RequestInit): Promise<Response> {
   const r = await fetch(url, init);
   if (r.status === 401) {
-    const token = prompt("pg-dash requires authentication. Enter token:");
+    const s = authStrings();
+    const token = prompt(s.prompt);
     if (token) {
       const authRes = await fetch("/api/auth", {
         method: "POST",
@@ -13,7 +22,7 @@ async function authFetch(url: string, init?: RequestInit): Promise<Response> {
       if (authRes.ok) {
         window.location.reload();
       } else {
-        alert("Invalid token");
+        alert(s.invalid);
       }
     }
     throw new Error("Unauthorized");

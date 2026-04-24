@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ExplainModal } from "../components/ExplainModal";
+import { useTranslation, localeCode } from "../i18n";
 
 interface SlowQuery {
   queryid: string;
@@ -15,6 +16,8 @@ interface SlowQuery {
 type SortKey = "total_time" | "mean_time" | "calls";
 
 export function QueriesPage() {
+  const { t, lang } = useTranslation();
+  const loc = localeCode(lang);
   const [queries, setQueries] = useState<SlowQuery[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +33,7 @@ export function QueriesPage() {
         if (Array.isArray(data)) {
           setQueries(data);
         } else {
-          setError("pg_stat_statements extension is not installed. Enable it to see query statistics.");
+          setError(t("queries.pgStatNotInstalled"));
         }
       } catch (err: any) {
         setError(err.message);
@@ -39,16 +42,16 @@ export function QueriesPage() {
       }
     };
     load();
-  }, []);
+  }, [t]);
 
   const filtered = queries
     .filter((q) => !search || q.query.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => (b[sortBy] as number) - (a[sortBy] as number));
 
-  if (loading) return <div className="text-gray-500 text-sm p-4">Loading queries...</div>;
+  if (loading) return <div className="text-gray-500 text-sm p-4">{t("queries.loadingQueries")}</div>;
   if (error) return (
     <div className="bg-gray-900 rounded-xl p-6">
-      <h2 className="text-lg font-semibold mb-2">Queries</h2>
+      <h2 className="text-lg font-semibold mb-2">{t("queries.title")}</h2>
       <div className="bg-yellow-900/30 border border-yellow-800 rounded p-3 text-sm text-yellow-300">{error}</div>
     </div>
   );
@@ -64,33 +67,33 @@ export function QueriesPage() {
     <div className="space-y-4">
       <div className="bg-gray-900 rounded-xl p-4">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h2 className="text-lg font-semibold">Slow Queries ({filtered.length})</h2>
+          <h2 className="text-lg font-semibold">{t("queries.slowQueries")} ({filtered.length})</h2>
           <div className="flex items-center gap-2">
             <input
               type="text"
-              placeholder="Search queries..."
+              placeholder={t("queries.searchQueries")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-300 w-48"
             />
-            <span className="text-xs text-gray-500">Sort:</span>
-            {sortBtn("total_time", "Total Time")}
-            {sortBtn("mean_time", "Avg Time")}
-            {sortBtn("calls", "Calls")}
+            <span className="text-xs text-gray-500">{t("queries.sortLabel")}</span>
+            {sortBtn("total_time", t("queries.cols.totalTime"))}
+            {sortBtn("mean_time", t("queries.cols.avgTime"))}
+            {sortBtn("calls", t("queries.cols.calls"))}
           </div>
         </div>
         {filtered.length === 0 ? (
-          <p className="text-gray-500 text-sm">No queries found</p>
+          <p className="text-gray-500 text-sm">{t("queries.noQueries")}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-gray-400 text-left border-b border-gray-800">
-                  <th className="py-2 px-2">Query</th>
-                  <th className="py-2 px-2 text-right">Calls</th>
-                  <th className="py-2 px-2 text-right">Total Time</th>
-                  <th className="py-2 px-2 text-right">Avg Time</th>
-                  <th className="py-2 px-2 text-right">Rows</th>
+                  <th className="py-2 px-2">{t("queries.cols.query")}</th>
+                  <th className="py-2 px-2 text-right">{t("queries.cols.calls")}</th>
+                  <th className="py-2 px-2 text-right">{t("queries.cols.totalTime")}</th>
+                  <th className="py-2 px-2 text-right">{t("queries.cols.avgTime")}</th>
+                  <th className="py-2 px-2 text-right">{t("queries.cols.rows")}</th>
                   <th className="py-2 px-2"></th>
                 </tr>
               </thead>
@@ -98,15 +101,15 @@ export function QueriesPage() {
                 {filtered.map((q) => (
                   <tr key={q.queryid} className="border-b border-gray-800/50 hover:bg-gray-800/30">
                     <td className="py-1.5 px-2 font-mono text-xs max-w-lg truncate">{q.query}</td>
-                    <td className="py-1.5 px-2 text-right font-mono">{q.calls.toLocaleString()}</td>
+                    <td className="py-1.5 px-2 text-right font-mono">{q.calls.toLocaleString(loc)}</td>
                     <td className="py-1.5 px-2 text-right font-mono">{q.total_time_pretty}</td>
                     <td className="py-1.5 px-2 text-right font-mono">{q.mean_time_pretty}</td>
-                    <td className="py-1.5 px-2 text-right font-mono">{q.rows.toLocaleString()}</td>
+                    <td className="py-1.5 px-2 text-right font-mono">{q.rows.toLocaleString(loc)}</td>
                     <td className="py-1.5 px-2">
                       <button
                         className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
                         onClick={() => setExplainQuery(q.query)}
-                      >EXPLAIN</button>
+                      >{t("queries.explain")}</button>
                     </td>
                   </tr>
                 ))}

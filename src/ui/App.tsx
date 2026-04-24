@@ -5,6 +5,7 @@ import { useWebSocket } from "./hooks/useWebSocket";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Header } from "./components/Header";
 import { TabNav } from "./components/TabNav";
+import { useTranslation } from "./i18n";
 import { Toast } from "./components/Toast";
 import { OverviewPage } from "./pages/OverviewPage";
 import { HealthPage } from "./pages/HealthPage";
@@ -22,6 +23,7 @@ function getInitialTab(): Tab {
 }
 
 export default function App() {
+  const { t } = useTranslation();
   const [range, setRange] = useState<Range>("1h");
   const [tab, setTab] = useState<Tab>(getInitialTab);
   const [alertCount, setAlertCount] = useState(0);
@@ -93,14 +95,14 @@ export default function App() {
   }, [tab]);
 
   const tabs: { id: Tab; label: string; badge?: number }[] = [
-    { id: "overview", label: "Overview" },
-    { id: "health", label: "Health" },
-    { id: "schema", label: "Schema" },
-    { id: "activity", label: "Activity" },
-    { id: "queries", label: "Queries" },
-    { id: "trends", label: "Trends" },
-    { id: "disk", label: "💾 Disk" },
-    { id: "alerts", label: "🔔 Alerts", badge: alertCount },
+    { id: "overview", label: t("tabs.overview") },
+    { id: "health", label: t("tabs.health") },
+    { id: "schema", label: t("tabs.schema") },
+    { id: "activity", label: t("tabs.activity") },
+    { id: "queries", label: t("tabs.queries") },
+    { id: "trends", label: t("tabs.trends") },
+    { id: "disk", label: t("tabs.disk") },
+    { id: "alerts", label: t("tabs.alerts"), badge: alertCount },
   ];
 
   return (

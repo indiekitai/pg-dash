@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useFetch } from "../hooks/useApi";
 import { formatBytes } from "../utils";
+import { useTranslation, localeCode } from "../i18n";
 
 interface DiskUsage {
   dbSize: number;
@@ -26,6 +27,8 @@ interface HistoryPoint {
 type RangeKey = "24h" | "7d" | "30d";
 
 export function DiskPage() {
+  const { t, lang } = useTranslation();
+  const loc = localeCode(lang);
   const [range, setRange] = useState<RangeKey>("24h");
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [tableRange, setTableRange] = useState<RangeKey>("24h");
@@ -42,8 +45,8 @@ export function DiskPage() {
 
   const fmtTs = (ts: number) => {
     const d = new Date(ts);
-    if (range === "24h") return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+    if (range === "24h") return d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleDateString(loc, { month: "short", day: "numeric" });
   };
 
   const rangeBtn = (key: RangeKey) => (
@@ -56,12 +59,12 @@ export function DiskPage() {
   const fmtRate = (bytesPerDay: number) => {
     const abs = Math.abs(bytesPerDay);
     const sign = bytesPerDay < 0 ? "-" : "+";
-    return `${sign}${formatBytes(abs)}/day`;
+    return `${sign}${formatBytes(abs)}${t("disk.perDay")}`;
   };
 
   if (usageErr) return (
     <div className="bg-gray-900 rounded-xl p-6">
-      <h2 className="text-lg font-semibold mb-2">Disk Usage</h2>
+      <h2 className="text-lg font-semibold mb-2">{t("disk.diskUsage")}</h2>
       <div className="bg-red-900/30 border border-red-800 rounded p-3 text-sm text-red-300">{usageErr}</div>
     </div>
   );
@@ -78,33 +81,33 @@ export function DiskPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* DB Size */}
         <div className="bg-gray-900 rounded-xl p-4">
-          <div className="text-xs text-gray-400 mb-1">Database Size</div>
+          <div className="text-xs text-gray-400 mb-1">{t("disk.databaseSize")}</div>
           <div className="text-3xl font-bold">{formatBytes(usage.dbSize)}</div>
           <div className="text-xs text-gray-500 mt-1">{usage.dataDir}</div>
         </div>
 
         {/* Growth Prediction */}
         <div className="bg-gray-900 rounded-xl p-4">
-          <div className="text-xs text-gray-400 mb-1">Growth Prediction (30d)</div>
+          <div className="text-xs text-gray-400 mb-1">{t("disk.growthPrediction")}</div>
           {prediction ? (
             <>
               <div className="text-xl font-bold">
                 {prediction.daysUntilFull !== null
-                  ? `Full in ${Math.round(prediction.daysUntilFull)} days`
-                  : "Growth stable"}
+                  ? t("disk.fullIn", { days: Math.round(prediction.daysUntilFull) })
+                  : t("disk.growthStable")}
               </div>
               <div className="text-xs text-gray-500 mt-1">
-                Confidence: {(prediction.confidence * 100).toFixed(0)}%
+                {t("disk.confidence", { pct: (prediction.confidence * 100).toFixed(0) })}
               </div>
             </>
           ) : (
-            <div className="text-sm text-gray-500">Not enough data yet</div>
+            <div className="text-sm text-gray-500">{t("disk.notEnoughData")}</div>
           )}
         </div>
 
         {/* Growth Rate */}
         <div className="bg-gray-900 rounded-xl p-4">
-          <div className="text-xs text-gray-400 mb-1">Growth Rate</div>
+          <div className="text-xs text-gray-400 mb-1">{t("disk.growthRate")}</div>
           {prediction ? (
             <div className={`text-xl font-bold ${prediction.growthRatePerDay > 0 ? "text-yellow-400" : "text-green-400"}`}>
               {fmtRate(prediction.growthRatePerDay)}
@@ -118,7 +121,7 @@ export function DiskPage() {
       {/* History Chart */}
       <div className="bg-gray-900 rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Database Size History</h2>
+          <h2 className="text-lg font-semibold">{t("disk.databaseSizeHistory")}</h2>
           <div className="flex items-center gap-2">
             {rangeBtn("24h")}
             {rangeBtn("7d")}
@@ -130,7 +133,7 @@ export function DiskPage() {
         ) : !history ? (
           <div className="h-64 bg-gray-800 rounded-lg animate-pulse" />
         ) : history.length === 0 ? (
-          <div className="text-gray-500 text-sm text-center py-8">No history data for this range</div>
+          <div className="text-gray-500 text-sm text-center py-8">{t("disk.noRangeData")}</div>
         ) : (
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -141,9 +144,9 @@ export function DiskPage() {
                 <Tooltip
                   contentStyle={{ backgroundColor: "#1F2937", border: "1px solid #374151", borderRadius: 8 }}
                   labelFormatter={fmtTs}
-                  formatter={(value: number) => [formatBytes(value), "DB Size"]}
+                  formatter={(value: number) => [formatBytes(value), t("disk.dbSizeTooltip")]}
                 />
-                <Area type="monotone" dataKey="value" stroke="#60A5FA" fill="#60A5FA" fillOpacity={0.2} name="DB Size" />
+                <Area type="monotone" dataKey="value" stroke="#60A5FA" fill="#60A5FA" fillOpacity={0.2} name={t("disk.dbSizeTooltip")} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -152,9 +155,9 @@ export function DiskPage() {
 
       {/* Per-table breakdown */}
       <div className="bg-gray-900 rounded-xl p-4">
-        <h2 className="text-lg font-semibold mb-3">Table Sizes (Top {usage.tables.length})</h2>
+        <h2 className="text-lg font-semibold mb-3">{t("disk.tableSizesTop", { count: usage.tables.length })}</h2>
         {usage.tables.length === 0 ? (
-          <p className="text-gray-500 text-sm">No user tables found.</p>
+          <p className="text-gray-500 text-sm">{t("disk.noUserTables")}</p>
         ) : (
           <>
             <div className="h-72">
@@ -165,11 +168,11 @@ export function DiskPage() {
                   <YAxis type="category" dataKey="name" stroke="#9CA3AF" fontSize={11} width={90} />
                   <Tooltip
                     contentStyle={{ backgroundColor: "#1F2937", border: "1px solid #374151", borderRadius: 8 }}
-                    formatter={(value: number, name: string) => [formatBytes(value), name === "tableSize" ? "Data" : "Index"]}
+                    formatter={(value: number, name: string) => [formatBytes(value), name === t("disk.data") ? t("disk.data") : t("disk.index")]}
                   />
                   <Legend />
-                  <Bar dataKey="tableSize" stackId="a" fill="#60A5FA" name="Data" />
-                  <Bar dataKey="indexSize" stackId="a" fill="#34D399" name="Index" />
+                  <Bar dataKey="tableSize" stackId="a" fill="#60A5FA" name={t("disk.data")} />
+                  <Bar dataKey="indexSize" stackId="a" fill="#34D399" name={t("disk.index")} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -177,21 +180,21 @@ export function DiskPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-gray-400 text-left border-b border-gray-800">
-                    <th className="py-2 px-2">Table</th>
-                    <th className="py-2 px-2 text-right">Total</th>
-                    <th className="py-2 px-2 text-right">Data</th>
-                    <th className="py-2 px-2 text-right">Index</th>
+                    <th className="py-2 px-2">{t("disk.cols.table")}</th>
+                    <th className="py-2 px-2 text-right">{t("disk.cols.total")}</th>
+                    <th className="py-2 px-2 text-right">{t("disk.cols.data")}</th>
+                    <th className="py-2 px-2 text-right">{t("disk.cols.index")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {usage.tables.map((t) => {
-                    const fullName = `${t.schema}.${t.name}`;
+                  {usage.tables.map((tb) => {
+                    const fullName = `${tb.schema}.${tb.name}`;
                     return (
                       <tr key={fullName} className={`border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/30 ${selectedTable === fullName ? "bg-gray-800/50" : ""}`} onClick={() => { setSelectedTable(selectedTable === fullName ? null : fullName); setTableRange("24h"); }}>
                         <td className="py-1.5 px-2 font-mono text-xs">{fullName}</td>
-                        <td className="py-1.5 px-2 text-right font-mono">{formatBytes(t.totalSize)}</td>
-                        <td className="py-1.5 px-2 text-right font-mono">{formatBytes(t.tableSize)}</td>
-                        <td className="py-1.5 px-2 text-right font-mono">{formatBytes(t.indexSize)}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{formatBytes(tb.totalSize)}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{formatBytes(tb.tableSize)}</td>
+                        <td className="py-1.5 px-2 text-right font-mono">{formatBytes(tb.indexSize)}</td>
                       </tr>
                     );
                   })}
@@ -206,7 +209,7 @@ export function DiskPage() {
       {selectedTable && (
         <div className="bg-gray-900 rounded-xl p-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">Size History: <span className="font-mono text-blue-400">{selectedTable}</span></h2>
+            <h2 className="text-lg font-semibold">{t("disk.sizeHistory")} <span className="font-mono text-blue-400">{selectedTable}</span></h2>
             <div className="flex items-center gap-2">
               {(["24h", "7d", "30d"] as RangeKey[]).map((k) => (
                 <button key={k} className={`text-xs px-2 py-1 rounded cursor-pointer ${tableRange === k ? "bg-blue-800 text-blue-200" : "text-gray-400 hover:text-gray-300"}`} onClick={() => setTableRange(k)}>{k}</button>
@@ -215,7 +218,7 @@ export function DiskPage() {
             </div>
           </div>
           {!tableHistory || tableHistory.length === 0 ? (
-            <div className="text-gray-500 text-sm text-center py-8">No history data yet. Table sizes are recorded every ~5 minutes.</div>
+            <div className="text-gray-500 text-sm text-center py-8">{t("disk.noTableHistory")}</div>
           ) : (
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
@@ -223,8 +226,8 @@ export function DiskPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis dataKey="timestamp" tickFormatter={fmtTs} stroke="#9CA3AF" fontSize={11} />
                   <YAxis stroke="#9CA3AF" fontSize={11} tickFormatter={(v) => formatBytes(v)} />
-                  <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "1px solid #374151", borderRadius: 8 }} labelFormatter={fmtTs} formatter={(value: number) => [formatBytes(value), "Size"]} />
-                  <Line type="monotone" dataKey="value" stroke="#A78BFA" dot={false} name="Size" />
+                  <Tooltip contentStyle={{ backgroundColor: "#1F2937", border: "1px solid #374151", borderRadius: 8 }} labelFormatter={fmtTs} formatter={(value: number) => [formatBytes(value), t("disk.sizeTooltip")]} />
+                  <Line type="monotone" dataKey="value" stroke="#A78BFA" dot={false} name={t("disk.sizeTooltip")} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -234,9 +237,9 @@ export function DiskPage() {
 
       {/* Tablespaces */}
       <div className="bg-gray-900 rounded-xl p-4">
-        <h2 className="text-lg font-semibold mb-3">Tablespaces</h2>
+        <h2 className="text-lg font-semibold mb-3">{t("disk.tablespaces")}</h2>
         {usage.tablespaces.length === 0 ? (
-          <p className="text-gray-500 text-sm">No tablespace data available.</p>
+          <p className="text-gray-500 text-sm">{t("disk.noTablespaces")}</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {usage.tablespaces.map((ts) => (

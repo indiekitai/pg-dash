@@ -3,16 +3,18 @@ import type { ActivityRow } from "../types";
 import { stateColor } from "../types";
 import { Toast } from "../components/Toast";
 import { ExplainModal } from "../components/ExplainModal";
+import { useTranslation } from "../i18n";
 
 export function ActivityPage({ activity }: { activity: ActivityRow[] }) {
+  const { t } = useTranslation();
   const [expandedPid, setExpandedPid] = useState<number | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [explainQuery, setExplainQuery] = useState<string | null>(null);
   const cancelQuery = async (pid: number) => {
-    if (!confirm(`Cancel query on PID ${pid}?`)) return;
+    if (!confirm(t("activity.cancelConfirm", { pid }))) return;
     try {
       await fetch(`/api/activity/${pid}/cancel`, { method: "POST" });
-      setToast({ message: `Cancelled PID ${pid}`, type: "success" });
+      setToast({ message: t("activity.cancelled", { pid }), type: "success" });
     } catch (e: any) {
       setToast({ message: e.message, type: "error" });
     }
@@ -24,11 +26,11 @@ export function ActivityPage({ activity }: { activity: ActivityRow[] }) {
   return (
     <div className="space-y-4">
       <div className="bg-gray-900 rounded-xl p-4 overflow-x-auto">
-        <h2 className="text-lg font-semibold mb-3">Active Queries ({nonIdle.length})</h2>
-        {nonIdle.length === 0 ? <p className="text-gray-500 text-sm">No active queries</p> : (
+        <h2 className="text-lg font-semibold mb-3">{t("activity.activeQueries")} ({nonIdle.length})</h2>
+        {nonIdle.length === 0 ? <p className="text-gray-500 text-sm">{t("activity.noActive")}</p> : (
           <table className="w-full text-sm">
             <thead><tr className="text-gray-400 text-left border-b border-gray-800">
-              <th className="py-2 px-2">PID</th><th className="py-2 px-2">App</th><th className="py-2 px-2">Duration</th><th className="py-2 px-2">State</th><th className="py-2 px-2">Wait</th><th className="py-2 px-2">Query</th><th className="py-2 px-2">Client</th><th className="py-2 px-2"></th>
+              <th className="py-2 px-2">{t("activity.cols.pid")}</th><th className="py-2 px-2">{t("activity.cols.app")}</th><th className="py-2 px-2">{t("activity.cols.duration")}</th><th className="py-2 px-2">{t("activity.cols.state")}</th><th className="py-2 px-2">{t("activity.cols.wait")}</th><th className="py-2 px-2">{t("activity.cols.query")}</th><th className="py-2 px-2">{t("activity.cols.client")}</th><th className="py-2 px-2"></th>
             </tr></thead>
             <tbody>
               {nonIdle.map((a) => (
@@ -40,14 +42,14 @@ export function ActivityPage({ activity }: { activity: ActivityRow[] }) {
                     <td className={`py-1.5 px-2 ${stateColor[a.state] || "text-gray-400"}`}>{a.state}</td>
                     <td className="py-1.5 px-2 text-xs">{a.wait_event || "—"}</td>
                     <td className="py-1.5 px-2 font-mono text-xs max-w-md truncate">{a.query}</td>
-                    <td className="py-1.5 px-2 text-xs">{a.client_addr || "local"}</td>
+                    <td className="py-1.5 px-2 text-xs">{a.client_addr || t("common.local")}</td>
                     <td className="py-1.5 px-2">
                       <span className="flex gap-2">
                         {a.query && (
-                          <button className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer" onClick={(e) => { e.stopPropagation(); setExplainQuery(a.query); }}>EXPLAIN</button>
+                          <button className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer" onClick={(e) => { e.stopPropagation(); setExplainQuery(a.query); }}>{t("activity.explain")}</button>
                         )}
                         {(a.state === "active" || a.state === "idle in transaction") && (
-                          <button className="text-xs text-red-400 hover:text-red-300 cursor-pointer" onClick={(e) => { e.stopPropagation(); cancelQuery(a.pid); }}>Cancel</button>
+                          <button className="text-xs text-red-400 hover:text-red-300 cursor-pointer" onClick={(e) => { e.stopPropagation(); cancelQuery(a.pid); }}>{t("activity.cancel")}</button>
                         )}
                       </span>
                     </td>
@@ -63,17 +65,17 @@ export function ActivityPage({ activity }: { activity: ActivityRow[] }) {
       </div>
 
       <div className="bg-gray-900 rounded-xl p-4 overflow-x-auto">
-        <h2 className="text-lg font-semibold mb-3">Idle Connections ({idle.length})</h2>
-        {idle.length === 0 ? <p className="text-gray-500 text-sm">No idle connections</p> : (
+        <h2 className="text-lg font-semibold mb-3">{t("activity.idleConnections")} ({idle.length})</h2>
+        {idle.length === 0 ? <p className="text-gray-500 text-sm">{t("activity.noIdle")}</p> : (
           <table className="w-full text-sm">
             <thead><tr className="text-gray-400 text-left border-b border-gray-800">
-              <th className="py-2 px-2">PID</th><th className="py-2 px-2">App</th><th className="py-2 px-2">Client</th>
+              <th className="py-2 px-2">{t("activity.cols.pid")}</th><th className="py-2 px-2">{t("activity.cols.app")}</th><th className="py-2 px-2">{t("activity.cols.client")}</th>
             </tr></thead>
             <tbody>{idle.map((a) => (
               <tr key={a.pid} className="border-b border-gray-800/50">
                 <td className="py-1.5 px-2 font-mono">{a.pid}</td>
                 <td className="py-1.5 px-2 text-xs">{a.application_name || "—"}</td>
-                <td className="py-1.5 px-2 text-xs">{a.client_addr || "local"}</td>
+                <td className="py-1.5 px-2 text-xs">{a.client_addr || t("common.local")}</td>
               </tr>
             ))}</tbody>
           </table>

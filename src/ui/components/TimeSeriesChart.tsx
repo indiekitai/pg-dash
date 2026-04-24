@@ -3,7 +3,8 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import type { MetricPoint, Range } from "../types";
-import { formatTime, mergeTimeSeries } from "../utils";
+import { mergeTimeSeries } from "../utils";
+import { useTranslation } from "../i18n";
 
 export function TimeSeriesChart({ title, metrics, range, colors }: {
   title: string;
@@ -11,6 +12,7 @@ export function TimeSeriesChart({ title, metrics, range, colors }: {
   range: Range;
   colors: string[];
 }) {
+  const { t } = useTranslation();
   const [data, setData] = useState<Record<string, MetricPoint[]>>({});
   useEffect(() => {
     const load = async () => {
@@ -33,7 +35,7 @@ export function TimeSeriesChart({ title, metrics, range, colors }: {
     return (
       <div className="bg-gray-900 rounded-xl p-4">
         <h3 className="text-sm font-medium text-gray-400 mb-2">{title}</h3>
-        <div className="h-48 flex items-center justify-center text-gray-600">Collecting data...</div>
+        <div className="h-48 flex items-center justify-center text-gray-600">{t("chart.collecting")}</div>
       </div>
     );
   }
