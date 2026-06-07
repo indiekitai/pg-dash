@@ -1,4 +1,5 @@
 // MCP Server for pg-dash — exposes PostgreSQL monitoring tools
+// Supports stdio (default) and Streamable HTTP (--http) transports
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -19,6 +20,7 @@ import { getBloatReport } from "./server/bloat.js";
 import { getAutovacuumReport } from "./server/autovacuum.js";
 import { getLockReport } from "./server/locks.js";
 import { getConfigReport } from "./server/config-checker.js";
+import { getPgvectorReport } from "./server/pgvector.js";
 import { getDbContext } from "./server/queries/db-context.js";
 import { gradeFromScore } from "./server/advisor.js";
 import { executeNaturalQuery, getLLMConfig, generateAISuggestions } from "./server/llm.js";
@@ -437,6 +439,15 @@ server.tool("pg_dash_config_check", "Audit PostgreSQL configuration settings and
   }
 });
 
+server.tool("pg_dash_pgvector", "Check pgvector health — installed version, vector columns, index types (IVFFlat/HNSW), dimension analysis, missing indexes, tuning recommendations", {}, async () => {
+  try {
+    const report = await getPgvectorReport(pool);
+    return { content: [{ type: "text", text: JSON.stringify(report, null, 2) }] };
+  } catch (err: any) {
+    return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+  }
+});
+
 server.tool(
   "fetch_db_context",
   "Get comprehensive database context for AI agents: table structures, columns, types, primary/foreign keys, indexes, business intent inference, and health summary",
@@ -646,5 +657,36 @@ server.tool(
   }
 );
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+const useHttp = process.argv.includes("--http");
+
+if (useHttp) {
+  const { Hono } = await import("hono");
+  const { cors } = await import("hono/cors");
+  const { serve } = await import("@hono/node-server");
+  const { WebStandardStreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js");
+
+  const httpPort = parseInt(process.env.MCP_PORT || "8768", 10);
+  const app = new Hono();
+
+  app.use("*", cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "mcp-session-id", "Last-Event-ID", "mcp-protocol-version"],
+    exposeHeaders: ["mcp-session-id", "mcp-protocol-version"],
+  }));
+
+  app.get("/health", (c) => c.json({ status: "ok", version: pkg.version }));
+
+  app.all("/mcp", async (c) => {
+    const transport = new WebStandardStreamableHTTPServerTransport();
+    await server.connect(transport);
+    return transport.handleRequest(c.req.raw);
+  });
+
+  serve({ fetch: app.fetch, port: httpPort });
+  console.error(`pg-dash MCP server (Streamable HTTP) listening on http://0.0.0.0:${httpPort}/mcp`);
+  console.error(`Health check: http://0.0.0.0:${httpPort}/health`);
+} else {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}

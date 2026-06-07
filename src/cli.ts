@@ -81,6 +81,7 @@ Usage:
   pg-dash slow-queries <connection>                    Analyze slow queries from pg_stat_statements
   pg-dash slow-queries <connection> --limit 20 --min-calls 5
   pg-dash bloat <connection>                           Analyze table/index bloat
+  pg-dash pgvector <connection>                        Check pgvector health (indexes, dimensions, tuning)
   pg-dash --host localhost --user postgres --db mydb
 
 Options:
@@ -123,7 +124,7 @@ Environment variables:
   process.exit(0);
 }
 
-const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env", "explain", "watch-locks", "query-stats", "slow-queries", "bloat"];
+const KNOWN_SUBCOMMANDS = ["check", "health", "check-migration", "schema-diff", "diff-env", "explain", "watch-locks", "query-stats", "slow-queries", "bloat", "pgvector"];
 const subcommand = positionals[0];
 
 function isValidConnectionString(s: string): boolean {
@@ -1117,6 +1118,74 @@ if (subcommand === "check" || subcommand === "health") {
     console.error(`Error: ${err.message}`);
     await pool.end();
     process.exit(1);
+  }
+
+} else if (subcommand === "pgvector") {
+  const connStr = positionals[1] || resolveConnectionString(1);
+  if (!connStr) {
+    console.error("Error: provide a connection string.\n\nUsage: pg-dash pgvector <connection>");
+    process.exit(1);
+  }
+
+  const outputJson = values.json || false;
+  const { Pool } = await import("pg");
+  const { getPgvectorReport } = await import("./server/pgvector.js");
+  const pool = new Pool({ connectionString: connStr, connectionTimeoutMillis: 10000 });
+
+  try {
+    const report = await getPgvectorReport(pool);
+
+    if (outputJson) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(`\npg-dash pgvector health check\n`);
+      console.log("═".repeat(80));
+
+      if (!report.installed) {
+        console.log("\n  pgvector is not installed on this database.");
+        console.log("  Install: CREATE EXTENSION vector;\n");
+      } else {
+        console.log(`\n  pgvector v${report.version}\n`);
+
+        if (report.columns.length > 0) {
+          console.log("  Vector Columns:");
+          for (const col of report.columns) {
+            const dims = col.dimensions ? `${col.dimensions}d` : "unknown dims";
+            console.log(`    ${col.schema}.${col.table}.${col.column} (${dims}, ${col.rowCount.toLocaleString()} rows)`);
+          }
+        } else {
+          console.log("  No vector columns found.");
+        }
+
+        if (report.indexes.length > 0) {
+          console.log("\n  Vector Indexes:");
+          for (const idx of report.indexes) {
+            const params = Object.entries(idx.params).map(([k, v]) => `${k}=${v}`).join(", ");
+            console.log(`    ${idx.indexName} (${idx.indexType}${params ? ", " + params : ""}) — ${idx.indexSize} (${idx.sizeRatio}x table)`);
+            if (idx.suggestion) console.log(`      ⚠️  ${idx.suggestion}`);
+          }
+        }
+
+        if (report.issues.length > 0) {
+          console.log("\n  Issues:");
+          for (const issue of report.issues) {
+            const icon = issue.severity === "critical" ? "🔴" : issue.severity === "warning" ? "🟡" : "🔵";
+            console.log(`    ${icon} ${issue.title}`);
+            if (issue.suggestion !== issue.title) console.log(`       → ${issue.suggestion}`);
+          }
+        } else {
+          console.log("\n  ✅ No pgvector issues found.");
+        }
+      }
+      console.log();
+    }
+
+    process.exit(report.issues.filter(i => i.severity === "critical").length > 0 ? 1 : 0);
+  } catch (err: any) {
+    console.error("Error:", err.message);
+    process.exit(1);
+  } finally {
+    await pool.end();
   }
 
 } else {

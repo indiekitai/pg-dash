@@ -2,7 +2,7 @@
 
 # pg-dash
 
-**The AI-native PostgreSQL health checker.** Three tools cover ~90% of day-to-day use — `check-migration`, `check`, `bloat`. Plus 20+ MCP tools for deeper analysis and a web dashboard for continuous monitoring.
+**The AI-native PostgreSQL health checker.** Three commands cover ~90% of day-to-day use — `check-migration`, `check`, `bloat`. Plus 26 MCP tools for deeper analysis (including pgvector health), Streamable HTTP transport for shared team servers, and a web dashboard for continuous monitoring.
 
 📖 **[Read the full writeup on Dev.to](https://dev.to/fan_yang_670d82db29664c9e/i-built-a-free-postgresql-health-checker-with-23-mcp-tools-and-ci-integration-2abc)**
 
@@ -16,7 +16,7 @@ Three commands cover the 80/20 case. Wire them into your workflow and you'll rar
 | `pg-dash check <conn>` (alias `health`) | Pre-deploy checklist |
 | `pg-dash bloat <conn>` | Scheduled cleanup (unused indexes, dead tuples) |
 
-For anything deeper — EXPLAIN analysis, schema diff, activity monitoring, query stats export — see the full command list below or call the 23 MCP tools from your AI agent.
+For anything deeper — EXPLAIN analysis, schema diff, pgvector health, activity monitoring, query stats export — see the full command list below or call the 26 MCP tools from your AI agent.
 
 Not another monitoring dashboard — pg-dash is built to fit into your **AI coding workflow**:
 
@@ -218,9 +218,46 @@ The exported JSON is typically <1MB regardless of database size.
 - **Lock monitoring** — Active lock-wait chains (who is blocking whom) + long-running queries >5s
 - **Config recommendations** — Audits `shared_buffers`, `work_mem`, `checkpoint_completion_target`, `random_page_cost`, `idle_in_transaction_session_timeout`, and 5 more settings with severity-tagged recommendations
 
+### 🧬 pgvector Health Check
+
+```bash
+pg-dash pgvector postgres://...
+```
+
+Checks pgvector installation and index health:
+- Installed version and upgrade recommendations
+- Vector columns with dimension analysis (flags >2000d for performance)
+- Index types (IVFFlat vs HNSW) with parameter tuning suggestions
+- IVFFlat `lists` vs row count validation (should be ~√rows)
+- HNSW `ef_construction` vs `m` ratio check
+- Missing vector indexes on large tables
+- Index size vs table size ratio
+
+MCP tool: `pg_dash_pgvector`
+
 ### 🤖 MCP Server
-- 23 tools for AI agent integration
-- `pg-dash-mcp postgres://...` — works with Claude, Cursor, etc.
+- 26 tools for AI agent integration
+- **Stdio** (default): `pg-dash-mcp postgres://...` — local use with Claude, Cursor, etc.
+- **Streamable HTTP**: `pg-dash-mcp postgres://... --http` — shared team server, compatible with MCP 2026-07-28 stateless spec
+
+```bash
+# Remote mode — shared team server on port 8768
+pg-dash-mcp postgres://... --http
+# Custom port
+MCP_PORT=9000 pg-dash-mcp postgres://... --http
+```
+
+MCP client config for remote mode:
+```json
+{
+  "mcpServers": {
+    "pg-dash": {
+      "type": "streamable-http",
+      "url": "http://your-server:8768/mcp"
+    }
+  }
+}
+```
 
 ### 🖥️ CLI
 ```bash
@@ -312,7 +349,7 @@ pg-dash-mcp postgres://user:pass@host/db
 PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 ```
 
-### Available Tools (25)
+### Available Tools (26)
 
 | Tool | Description |
 |------|-------------|
@@ -339,9 +376,10 @@ PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 | `pg_dash_autovacuum` | Check autovacuum health — which tables are stale or never vacuumed |
 | `pg_dash_locks` | Show active lock waits and long-running blocking queries |
 | `pg_dash_config_check` | Audit PostgreSQL configuration and get tuning recommendations |
+| `pg_dash_pgvector` | pgvector health — installed version, vector columns, index types (IVFFlat/HNSW), dimension analysis, tuning |
 | `fetch_db_context` | Comprehensive DB context for AI agents: all table structures, columns, types, PKs/FKs, indexes, business intent inference, and health summary (single call for full context) |
-| `pg_dash_query_natural` | Query database using natural language — LLM converts your question to SQL and returns results. Example: "show me slow queries last hour", "find missing indexes", "what's the health score", "list all tables with their sizes" |
-| `ci_health_summary` | Generate a CI-friendly health summary with AI-powered prioritization. Input: health check result (from pg_dash_health). Output: one-sentence summary + prioritized issue list. Perfect for GitHub Actions/GitLab CI integration. |
+| `pg_dash_query_natural` | Query database using natural language — LLM converts your question to SQL and returns results |
+| `ci_health_summary` | CI-friendly health summary with AI-powered prioritization |
 
 ## MCP Setup
 
