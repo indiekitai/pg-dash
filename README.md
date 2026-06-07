@@ -75,6 +75,18 @@ The Dashboard is there when you need it. But the real power is in the CLI, MCP, 
 | pgAdmin | Free | Complex UI | ❌ | ❌ |
 | **pg-dash** | **Free** | **One command** | **25 MCP tools** | **`--ci --diff`** |
 
+
+## Security: SQL Safety by Design
+
+> **Note:** The [official Anthropic PostgreSQL MCP server](https://github.com/modelcontextprotocol/servers/tree/main/src/postgres) has a [known SQL injection vulnerability](https://invariantlabs.ai/blog/mcp-github-vulnerability) that bypasses its read-only transaction wrapper. pg-dash takes a different approach.
+
+pg-dash enforces SQL safety at multiple layers:
+
+- **Read-only by default** — All MCP query tools run inside `SET TRANSACTION READ ONLY` with parameterized queries. No raw SQL passthrough.
+- **Strict write allowlist** — The `pg_dash_fix` tool only executes pre-approved operations: `VACUUM`, `ANALYZE`, `REINDEX`, `CREATE INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`. Everything else is rejected.
+- **No arbitrary SQL execution** — Unlike servers that expose a generic `query` tool, pg-dash exposes purpose-built tools (`pg_dash_health`, `pg_dash_explain`, `pg_dash_bloat`, etc.) that construct their own SQL internally.
+- **Connection string isolation** — Each MCP session is bound to the connection string provided at startup. No tool can connect to a different database.
+
 ## Features
 
 ### 📊 Real-time Monitoring
@@ -517,7 +529,7 @@ MIT
 
 ---
 
-Built by [IndieKit](https://github.com/indiekitai) 🛠️
+Built by [IndieKit](https://indiekit.ai) — open-source developer tools with MCP support.
 
 ## History
 
