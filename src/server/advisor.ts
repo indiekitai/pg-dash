@@ -779,6 +779,31 @@ export async function getAdvisorReport(pool: Pool, longQueryThreshold = 5): Prom
       batchFixes.push({ type: prefix, title: `${title} (${group.length})`, count: group.length, sql });
     }
 
+    // --- Duplicate CHECK constraints (same expression on same table) ---
+    try {
+      const dupChecks = await client.query(`
+        SELECT
+          t.relname AS table_name,
+          COUNT(*) AS check_count,
+          array_agg(c.conname ORDER BY c.conname) AS constraint_names
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.contype = 'c' AND n.nspname = 'public'
+        GROUP BY t.relname, pg_get_constraintdef(c.oid)
+        HAVING COUNT(*) > 1
+      `);
+      for (const row of dupChecks.rows) {
+        issues.push({
+          type: "schema-duplicate-check-constraint",
+          severity: "warning" as const,
+          title: `Table "${row.table_name}" has ${row.check_count} CHECK constraints with identical logic: ${row.constraint_names.join(", ")}`,
+          suggestion: "One constraint may be leftover from a migration. Verify and DROP the duplicate.",
+          category: "schema",
+        });
+      }
+    } catch (_) {}
+
     const score = computeAdvisorScore(activeIssues);
     return {
       score,
