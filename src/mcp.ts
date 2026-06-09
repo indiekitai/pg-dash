@@ -648,3 +648,47 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+// --- List Constraints Tool ---
+server.tool(
+  "pg_dash_list_constraints",
+  "List all CHECK, UNIQUE, FK, and exclusion constraints on a table. Essential before DROP CONSTRAINT to verify constraint names.",
+  {
+    table: z.string().describe("Table name (e.g. 'signal_execution_events' or 'public.users')"),
+  },
+  async ({ table }) => {
+    try {
+      const client = await pool.connect();
+      try {
+        const tableName = table.replace(/^public\./, '').replace(/"/g, '');
+        const r = await client.query(`
+          SELECT
+            c.conname AS constraint_name,
+            CASE c.contype
+              WHEN 'c' THEN 'CHECK'
+              WHEN 'u' THEN 'UNIQUE'
+              WHEN 'f' THEN 'FOREIGN KEY'
+              WHEN 'p' THEN 'PRIMARY KEY'
+              WHEN 'x' THEN 'EXCLUSION'
+            END AS constraint_type,
+            pg_get_constraintdef(c.oid, true) AS definition,
+            c.convalidated AS is_validated
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE t.relname = \$1 AND n.nspname = 'public'
+          ORDER BY c.contype, c.conname
+        `, [tableName]);
+        
+        if (r.rows.length === 0) {
+          return { content: [{ type: "text", text: JSON.stringify({ table: tableName, constraints: [], message: "No constraints found (table may not exist)" }, null, 2) }] };
+        }
+        return { content: [{ type: "text", text: JSON.stringify({ table: tableName, count: r.rows.length, constraints: r.rows }, null, 2) }] };
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);

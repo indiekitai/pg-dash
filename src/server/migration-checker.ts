@@ -414,6 +414,30 @@ async function dynamicCheck(sql: string, pool: Pool, staticIssues: MigrationIssu
     }
   }
 
+  // Check DROP CONSTRAINT names actually exist in the database
+  const dropConRe = /\bDROP\s+CONSTRAINT\s+(?:IF\s+EXISTS\s+)?([\w".]+)/gi;
+  const strippedForDrop = sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, "");
+  let dcm: RegExpExecArray | null;
+  while ((dcm = dropConRe.exec(strippedForDrop)) !== null) {
+    const conName = dcm[1].replace(/"/g, "").toLowerCase();
+    try {
+      const res = await pool.query(
+        "SELECT conname FROM pg_constraint WHERE conname = $1",
+        [conName]
+      );
+      if (res.rows.length === 0) {
+        issues.push({
+          severity: "warning",
+          code: "DROP_CONSTRAINT_NOT_FOUND",
+          message: `DROP CONSTRAINT "${conName}" — constraint does not exist in the database. The name may be wrong.`,
+          suggestion: "Query pg_constraint to find the actual constraint name: SELECT conname FROM pg_constraint WHERE conrelid = 'TABLE'::regclass;",
+        });
+      }
+    } catch (_) {
+      // Ignore DB errors
+    }
+  }
+
   return issues;
 }
 
