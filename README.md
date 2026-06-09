@@ -346,7 +346,7 @@ For AI agent integration:
 # Start MCP server
 pg-dash-mcp postgres://user:pass@host/db
 
-# Or with env var
+# Or with env var (PG_DASH_CONNECTION_STRING or DATABASE_URL)
 PG_DASH_CONNECTION_STRING=postgres://... pg-dash-mcp
 ```
 
@@ -389,6 +389,21 @@ Connect pg-dash to Claude Desktop or Cursor for AI-assisted database management.
 ### Claude Desktop
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "pg-dash": {
+      "command": "npx",
+      "args": ["-y", "-p", "@indiekitai/pg-dash", "pg-dash-mcp", "postgresql://user:pass@host/db"]
+    }
+  }
+}
+```
+
+### Claude Code
+
+Add to `~/.claude/mcp.json` (global) or `.mcp.json` (project-level):
 
 ```json
 {

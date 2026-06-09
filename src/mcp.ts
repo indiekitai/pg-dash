@@ -31,10 +31,13 @@ import fs, { readFileSync } from "node:fs";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8"));
 
-const connString = process.argv[2] || process.env.PG_DASH_CONNECTION_STRING;
+const connString =
+  process.argv[2] ||
+  process.env.PG_DASH_CONNECTION_STRING ||
+  process.env.DATABASE_URL;
 if (!connString) {
   console.error("Usage: pg-dash-mcp <connection-string>");
-  console.error("  or set PG_DASH_CONNECTION_STRING env var");
+  console.error("  or set PG_DASH_CONNECTION_STRING / DATABASE_URL env var");
   process.exit(1);
 }
 
@@ -688,7 +691,7 @@ server.tool(
           WHERE t.relname = \$1 AND n.nspname = 'public'
           ORDER BY c.contype, c.conname
         `, [tableName]);
-        
+
         if (r.rows.length === 0) {
           return { content: [{ type: "text", text: JSON.stringify({ table: tableName, constraints: [], message: "No constraints found (table may not exist)" }, null, 2) }] };
         }
