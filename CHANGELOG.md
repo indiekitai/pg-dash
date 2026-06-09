@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.13.1] - 2026-06-09
+### Fixed
+- **MCP server startup fix**: removed eager `pool.connect()` probe that raced with MCP stdio transport initialization, causing "Connection terminated unexpectedly" on startup. The pool now connects lazily on first tool call (each tool already has its own try/catch).
+
+## [0.13.0] - 2026-06-07
+### Added
+- **`pg_dash_list_constraints` tool**: list CHECK / UNIQUE / FK / PK / EXCLUSION constraints for a given table.
+- **Duplicate CHECK constraint detection** in `pg_dash_health`: flags tables with redundant CHECK constraints.
+- **SSH tunnel hint**: connection error messages now suggest checking the SSH tunnel when `ECONNREFUSED`.
+
 ## [0.12.0] - 2026-04-24
 ### Added
 - **Web dashboard i18n**: English / 中文 (Simplified Chinese) language toggle in the header, persisted to localStorage. Zero new dependencies — implemented as a lightweight `LanguageProvider` + `useTranslation` hook with compile-time mirroring between en/zh locales. Covers all tabs (Overview, Health, Schema, Activity, Queries, Trends, Disk, Alerts), table headers, empty states, chart legends, severity badges, and confirmation dialogs. Dynamic data (table names, query text, advisor rule messages from the server) remains in its source form.

@@ -38,17 +38,6 @@ if (!connString) {
 
 const pool = new Pool({ connectionString: connString, connectionTimeoutMillis: 10000 });
 
-// Test connection on startup and provide clear error message
-pool.connect().then(client => {
-  client.release();
-}).catch(err => {
-  const msg = err.message || String(err);
-  if (msg.includes("ECONNREFUSED") || msg.includes("timeout") || msg.includes("ETIMEDOUT")) {
-    console.error(`[pg-dash] Cannot connect to database. If connecting via SSH tunnel, ensure the tunnel is open: ssh -L 5432:localhost:5432 user@host`);
-  } else {
-    console.error(`[pg-dash] Database connection failed: ${msg}`);
-  }
-});
 const longQueryThreshold = parseInt(process.env.PG_DASH_LONG_QUERY_THRESHOLD || "5", 10);
 const dataDir = process.env.PG_DASH_DATA_DIR || path.join(os.homedir(), ".pg-dash");
 fs.mkdirSync(dataDir, { recursive: true });
