@@ -187,6 +187,53 @@ server.tool("pg_dash_explain", "Run EXPLAIN ANALYZE on a SELECT query (read-only
   }
 });
 
+server.tool(
+  "pg_dash_query",
+  "Execute a read-only SELECT query and return results. Auto-adds LIMIT 200 if no LIMIT clause present. Use for ad-hoc data inspection.",
+  {
+    sql: z.string().describe("SELECT query to execute"),
+    limit: z.number().optional().default(200).describe("Max rows to return (default 200, max 1000)"),
+  },
+  async ({ sql, limit }) => {
+    try {
+      if (!/^\s*SELECT\b/i.test(sql) && !/^\s*WITH\b/i.test(sql)) {
+        return { content: [{ type: "text", text: "Error: Only SELECT (or WITH ... SELECT) queries are allowed" }], isError: true };
+      }
+      const effectiveLimit = Math.min(limit ?? 200, 1000);
+      const needsLimit = !/\bLIMIT\s+\d+/i.test(sql);
+      const finalSql = needsLimit ? `${sql.replace(/;\s*$/, "")} LIMIT ${effectiveLimit}` : sql;
+      const client = await pool.connect();
+      try {
+        await client.query("SET statement_timeout = '30s'");
+        await client.query("BEGIN READ ONLY");
+        try {
+          const r = await client.query(finalSql);
+          await client.query("ROLLBACK");
+          await client.query("RESET statement_timeout");
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                rowCount: r.rowCount,
+                columns: r.fields.map(f => f.name),
+                rows: r.rows,
+              }, null, 2),
+            }],
+          };
+        } catch (err: any) {
+          await client.query("ROLLBACK").catch(() => {});
+          await client.query("RESET statement_timeout").catch(() => {});
+          return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+        }
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+    }
+  }
+);
+
 server.tool("pg_dash_batch_fix", "Get batch fix SQL for issues (optionally filtered by category)", { category: z.string().optional().describe("Filter by issue type prefix, e.g. 'schema-missing-fk-index'") }, async ({ category }) => {
   try {
     const report = await getAdvisorReport(pool, longQueryThreshold);
